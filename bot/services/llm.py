@@ -283,7 +283,7 @@ class LLMService:
 
             tokens_used = response.usage.total_tokens if response.usage else len(assistant_text) // 4
             await self._repo.add_message(conv_id, "assistant", assistant_text, tokens_used)
-            await self._repo.log_api_usage(user_id, "chat", model, tokens_used)
+            await self._repo.log_api_usage(user_id, "web_search", model, tokens_used)
 
             if on_chunk:
                 await on_chunk(assistant_text)

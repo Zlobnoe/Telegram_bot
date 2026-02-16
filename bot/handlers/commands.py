@@ -9,6 +9,7 @@ from aiogram.types import Message, BufferedInputFile, InlineKeyboardMarkup, Inli
 
 from bot.config import Config
 from bot.database.repository import Repository
+from bot.utils import safe_reply
 
 router = Router()
 
@@ -44,7 +45,7 @@ async def cmd_help(message: Message) -> None:
         "/image — generate image\n"
         "/search — web search\n"
         "/sum <url> — summarize a page\n"
-        "/usage — token stats\n\n"
+        "/stats — статистика (= /usage)\n\n"
         "Reminders:\n"
         "/remind — set reminder\n"
         "/reminders — list active\n"
@@ -200,43 +201,65 @@ async def cmd_export(message: Message, repo: Repository) -> None:
     await message.answer_document(json_file, caption=f"Conversation #{conv['id']} (JSON)")
 
 
-# ── /usage ────────────────────────────────────────────────
+# ── /usage, /stats ────────────────────────────────────────
 
-@router.message(Command("usage"))
+def _format_usage_block(title: str, api_usage: list[dict]) -> str:
+    """Format a usage summary block from api_usage rows."""
+    stats = {row["type"]: row for row in api_usage}
+    chat = stats.get("chat", {"count": 0, "total_tokens": 0})
+    web = stats.get("web_search", {"count": 0, "total_tokens": 0})
+    vision = stats.get("vision", {"count": 0, "total_tokens": 0})
+    image = stats.get("image", {"count": 0, "total_tokens": 0})
+    stt = stats.get("stt", {"count": 0, "total_tokens": 0})
+    tts = stats.get("tts", {"count": 0, "total_tokens": 0})
+
+    total_tokens = sum(s.get("total_tokens", 0) for s in stats.values())
+    total_requests = sum(s.get("count", 0) for s in stats.values())
+
+    lines = [f"<b>{title}</b>  ({total_tokens:,} tok, {total_requests} req)"]
+    if chat["count"]:
+        lines.append(f"  💬 Chat: {chat['count']} × {chat['total_tokens']:,} tok")
+    if web["count"]:
+        lines.append(f"  🌐 Web search: {web['count']} × {web['total_tokens']:,} tok")
+    if vision["count"]:
+        lines.append(f"  👁 Vision: {vision['count']} × {vision['total_tokens']:,} tok")
+    if image["count"]:
+        lines.append(f"  🎨 Images: {image['count']}")
+    if stt["count"]:
+        lines.append(f"  🎤 STT: {stt['count']}")
+    if tts["count"]:
+        lines.append(f"  🔊 TTS: {tts['count']}")
+    if total_requests == 0:
+        lines.append("  —")
+    return "\n".join(lines)
+
+
+@router.message(Command("usage", "stats"))
 async def cmd_usage(message: Message, repo: Repository) -> None:
     user_id = message.from_user.id
+
+    daily = await repo.get_daily_usage_summary(user_id)
+    monthly = await repo.get_monthly_usage_summary(user_id)
+    total = await repo.get_api_usage_summary(user_id)
     totals = await repo.get_user_token_usage(user_id)
-    api_usage = await repo.get_api_usage_summary(user_id)
 
-    api_stats = {row["type"]: row for row in api_usage}
-    chat = api_stats.get("chat", {"count": 0, "total_tokens": 0})
-    image = api_stats.get("image", {"count": 0, "total_tokens": 0})
-    stt = api_stats.get("stt", {"count": 0, "total_tokens": 0})
-    vision = api_stats.get("vision", {"count": 0, "total_tokens": 0})
-    tts = api_stats.get("tts", {"count": 0, "total_tokens": 0})
-
-    lines = [
-        "**Usage stats:**",
+    parts = [
+        "📊 <b>Статистика использования</b>\n",
+        _format_usage_block("Сегодня", daily),
+        _format_usage_block("За месяц", monthly),
+        _format_usage_block("За всё время", total),
         "",
-        f"💬 Chat: {chat['count']} requests, {chat['total_tokens']:,} tokens",
-        f"👁 Vision: {vision['count']} requests, {vision['total_tokens']:,} tokens",
-        f"🎨 Images: {image['count']} generated",
-        f"🎤 STT: {stt['count']} transcriptions",
-        f"🔊 TTS: {tts['count']} synthesized",
-        "",
-        f"Messages sent: {totals['user_messages']}",
-        f"Responses received: {totals['assistant_messages']}",
+        f"✉️ Сообщений: {totals['user_messages']} отпр. / {totals['assistant_messages']} получ.",
     ]
 
     convs = await repo.get_user_token_usage_by_conversation(user_id)
     if convs:
-        lines.append("")
-        lines.append("**Last conversations:**")
+        parts.append("\n<b>Последние диалоги:</b>")
         for c in convs:
             active = " ✅" if c["is_active"] else ""
-            lines.append(
-                f"• `{c['model']}` — {c['tokens']:,} tokens, "
+            parts.append(
+                f"• <code>{c['model']}</code> — {c['tokens']:,} tok, "
                 f"{c['message_count']} msgs{active}"
             )
 
-    await message.answer("\n".join(lines), parse_mode="Markdown")
+    await safe_reply(message, "\n".join(parts))
