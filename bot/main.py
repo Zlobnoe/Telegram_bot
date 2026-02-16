@@ -5,6 +5,7 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from dotenv import load_dotenv
 
 from bot.config import Config
@@ -78,6 +79,26 @@ async def main() -> None:
     dp.include_router(chat.router)       # must be last — catches all text
 
     logger.info("Bot starting, model=%s", config.default_model)
+
+    # Register commands for Telegram menu
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Начать диалог"),
+        BotCommand(command="help", description="Список команд"),
+        BotCommand(command="reset", description="Сбросить контекст"),
+        BotCommand(command="search", description="Поиск в интернете"),
+        BotCommand(command="image", description="Сгенерировать изображение"),
+        BotCommand(command="remind", description="Установить напоминание"),
+        BotCommand(command="reminders", description="Список напоминаний"),
+        BotCommand(command="memory", description="Моя память"),
+        BotCommand(command="remember", description="Запомнить факт"),
+        BotCommand(command="skills", description="Список навыков"),
+        BotCommand(command="calc", description="Калькулятор"),
+        BotCommand(command="time", description="Текущее время"),
+        BotCommand(command="run", description="Выполнить Python код"),
+        BotCommand(command="translate", description="Перевести текст"),
+        BotCommand(command="summarize", description="Суммаризация текста"),
+        BotCommand(command="sum", description="Суммаризация по URL"),
+    ])
 
     reminder_service.start()
 
