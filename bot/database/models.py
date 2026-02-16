@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS api_usage (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER NOT NULL REFERENCES users(id),
-    type       TEXT NOT NULL CHECK(type IN ('chat','image','stt','vision','tts')),
+    type       TEXT NOT NULL CHECK(type IN ('chat','image','stt','vision','tts','web_search')),
     model      TEXT,
     tokens_used INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

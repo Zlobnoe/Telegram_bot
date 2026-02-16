@@ -98,6 +98,7 @@ async def main() -> None:
         BotCommand(command="translate", description="Перевести текст"),
         BotCommand(command="summarize", description="Суммаризация текста"),
         BotCommand(command="sum", description="Суммаризация по URL"),
+        BotCommand(command="stats", description="Статистика использования"),
     ])
 
     reminder_service.start()

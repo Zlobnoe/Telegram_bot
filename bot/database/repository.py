@@ -36,7 +36,23 @@ class Repository:
                 CREATE TABLE api_usage (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id    INTEGER NOT NULL REFERENCES users(id),
-                    type       TEXT NOT NULL CHECK(type IN ('chat','image','stt','vision','tts')),
+                    type       TEXT NOT NULL CHECK(type IN ('chat','image','stt','vision','tts','web_search')),
+                    model      TEXT,
+                    tokens_used INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO api_usage SELECT * FROM api_usage_old;
+                DROP TABLE api_usage_old;
+                CREATE INDEX IF NOT EXISTS idx_api_usage_user ON api_usage(user_id, type);
+                CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(user_id, created_at);
+            """)
+        elif row and "web_search" not in row["sql"]:
+            await self._db.executescript("""
+                ALTER TABLE api_usage RENAME TO api_usage_old;
+                CREATE TABLE api_usage (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL REFERENCES users(id),
+                    type       TEXT NOT NULL CHECK(type IN ('chat','image','stt','vision','tts','web_search')),
                     model      TEXT,
                     tokens_used INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -257,6 +273,22 @@ class Repository:
         cursor = await self._db.execute(
             """SELECT type, COUNT(*) AS count, COALESCE(SUM(tokens_used), 0) AS total_tokens
                FROM api_usage WHERE user_id = ? GROUP BY type""",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_daily_usage_summary(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            """SELECT type, COUNT(*) AS count, COALESCE(SUM(tokens_used), 0) AS total_tokens
+               FROM api_usage WHERE user_id = ? AND created_at >= date('now') GROUP BY type""",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_monthly_usage_summary(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            """SELECT type, COUNT(*) AS count, COALESCE(SUM(tokens_used), 0) AS total_tokens
+               FROM api_usage WHERE user_id = ? AND created_at >= date('now', 'start of month') GROUP BY type""",
             (user_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
