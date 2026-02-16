@@ -1,0 +1,19 @@
+name: datetime
+description: "Get current date, time, and timezone conversions"
+version: "1.0"
+author: system
+trigger: /time
+keywords:
+  - "который час"
+  - "какое сегодня число"
+  - "текущая дата"
+  - "current time"
+  - "what time"
+  - "сколько времени"
+system_prompt: |
+  You have a datetime skill that provides the current date and time.
+  When the user asks about time or date, use the skill result.
+examples:
+  - "который час?"
+  - "какое сегодня число?"
+  - "current time in Tokyo"

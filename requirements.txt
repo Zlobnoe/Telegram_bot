@@ -1,0 +1,7 @@
+aiogram>=3.13,<4
+openai>=1.50,<2
+aiosqlite>=0.20,<1
+python-dotenv>=1.0
+duckduckgo-search>=8.0
+beautifulsoup4>=4.12
+pyyaml>=6.0

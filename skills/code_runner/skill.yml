@@ -1,0 +1,14 @@
+name: code_runner
+description: "Execute Python code snippets safely (sandboxed)"
+version: "1.0"
+author: system
+trigger: /run
+keywords: []
+system_prompt: |
+  You have a code execution skill available via /run command.
+  When the user sends /run followed by Python code, it will be executed
+  in a sandboxed environment with limited builtins.
+  Imports and file/network access are restricted for security.
+examples:
+  - "/run print('Hello!')"
+  - "/run [x**2 for x in range(10)]"

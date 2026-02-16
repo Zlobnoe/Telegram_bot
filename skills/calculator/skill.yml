@@ -1,0 +1,19 @@
+name: calculator
+description: "Evaluate mathematical expressions safely"
+version: "1.0"
+author: system
+trigger: /calc
+keywords:
+  - "посчитай"
+  - "вычисли"
+  - "калькулятор"
+  - "calculate"
+  - "compute"
+system_prompt: |
+  You have a calculator skill. When the user asks to calculate something,
+  the skill will evaluate the expression and return the result.
+  Present the result clearly, showing the expression and the answer.
+examples:
+  - "посчитай 2+2*3"
+  - "calculate 15% of 250"
+  - "вычисли квадратный корень из 144"

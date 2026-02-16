@@ -1,0 +1,23 @@
+name: translator
+description: "Translate text between languages"
+version: "1.0"
+author: system
+trigger: /translate
+keywords:
+  - "переведи"
+  - "translate"
+  - "перевод"
+  - "на английский"
+  - "на русский"
+  - "in english"
+  - "in russian"
+system_prompt: |
+  When the user asks to translate text, provide an accurate translation.
+  Always show: original text, detected source language, target language, and translation.
+  If the target language is not specified, translate between Russian and English
+  (detect which one the input is in and translate to the other).
+  For complex phrases, also provide alternative translations and brief notes on nuance.
+examples:
+  - "переведи hello world"
+  - "translate 'кот' на английский"
+  - "как будет 'serendipity' на русском?"

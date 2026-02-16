@@ -1,0 +1,24 @@
+name: summarizer
+description: "Summarize long texts, articles, or conversations"
+version: "1.0"
+author: system
+trigger: /summarize
+keywords:
+  - "кратко"
+  - "резюме"
+  - "пересказ"
+  - "summarize"
+  - "summary"
+  - "подведи итог"
+  - "тезисы"
+system_prompt: |
+  When the user asks to summarize text, provide a clear, concise summary.
+  Structure your summary with:
+  - Main points (bullet list)
+  - Key takeaways (1-2 sentences)
+  If it's a long text, break it into sections.
+  Maintain the original language of the text.
+examples:
+  - "подведи итог нашего разговора"
+  - "summarize this article: ..."
+  - "кратко перескажи"

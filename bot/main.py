@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+
+from aiogram import Bot, Dispatcher
+from dotenv import load_dotenv
+
+from bot.config import Config
+from bot.database.repository import Repository
+from bot.services.llm import LLMService
+from bot.services.stt import STTService
+from bot.services.tts import TTSService
+from bot.services.skills import SkillsService
+from bot.services.reminder import ReminderService
+from bot.middleware.auth import AuthMiddleware
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+async def main() -> None:
+    load_dotenv()
+    config = Config.from_env()
+
+    # database
+    db_dir = os.path.dirname(config.db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    repo = Repository(config.db_path)
+    await repo.connect()
+
+    # services
+    llm = LLMService(config, repo)
+    stt = STTService(config)
+    tts = TTSService(config)
+
+    # skills
+    skills_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills")
+    skill_service = SkillsService(skills_dir)
+    await skill_service.load_all()
+    llm.set_skills_prompt(skill_service.get_skills_prompt())
+
+    # bot + dispatcher
+    bot = Bot(token=config.telegram_bot_token)
+    dp = Dispatcher()
+
+    # middleware
+    dp.message.middleware(AuthMiddleware(config))
+
+    # inject dependencies
+    dp["config"] = config
+    dp["repo"] = repo
+    dp["llm"] = llm
+    dp["stt"] = stt
+    dp["tts"] = tts
+    dp["skill_service"] = skill_service
+
+    # reminder scheduler
+    reminder_service = ReminderService(bot, repo)
+
+    # register routers (order matters)
+    dp.include_router(admin.router)      # callbacks + admin commands
+    dp.include_router(commands.router)   # /start, /reset, etc.
+    dp.include_router(reminder.router)   # /remind, /reminders
+    dp.include_router(memory.router)     # /memory, /remember, /forget
+    dp.include_router(skills.router)     # /skills + skill triggers
+    dp.include_router(web.router)        # /search
+    dp.include_router(image.router)      # /image
+    dp.include_router(summarize.router)  # URL auto-summarize
+    dp.include_router(voice.router)      # voice messages
+    dp.include_router(vision.router)     # photo messages
+    dp.include_router(chat.router)       # must be last — catches all text
+
+    logger.info("Bot starting, model=%s", config.default_model)
+
+    reminder_service.start()
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await reminder_service.stop()
+        await repo.close()
+        await bot.session.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
