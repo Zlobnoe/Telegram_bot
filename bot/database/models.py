@@ -60,4 +60,33 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_user        ON api_usage(user_id, type)
 CREATE INDEX IF NOT EXISTS idx_api_usage_created     ON api_usage(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_reminders_time        ON reminders(remind_at, sent);
 CREATE INDEX IF NOT EXISTS idx_user_memory_user      ON user_memory(user_id);
+
+CREATE TABLE IF NOT EXISTS expenses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    amount      REAL NOT NULL,
+    custom_week INTEGER NOT NULL,
+    year        INTEGER NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS finance_settings (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id),
+    weekly_budget  REAL DEFAULT 0,
+    current_week   INTEGER DEFAULT 1,
+    current_year   INTEGER DEFAULT 2026
+);
+
+CREATE TABLE IF NOT EXISTS budget_history (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    amount      REAL NOT NULL,
+    week_from   INTEGER NOT NULL,
+    year_from   INTEGER NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_user_week    ON expenses(user_id, year, custom_week);
+CREATE INDEX IF NOT EXISTS idx_expenses_user_year    ON expenses(user_id, year);
+CREATE INDEX IF NOT EXISTS idx_budget_history_user   ON budget_history(user_id, year_from, week_from);
 """

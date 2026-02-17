@@ -18,7 +18,7 @@ from bot.services.reminder import ReminderService
 from bot.services.gcal import create_gcal_service
 from bot.services.gcal_digest import GCalDigestService
 from bot.middleware.auth import AuthMiddleware
-from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +73,7 @@ async def main() -> None:
 
     # register routers (order matters)
     dp.include_router(admin.router)      # callbacks + admin commands
+    dp.include_router(expenses.router)   # /exp, /week, /year, /budget, /newweek, /fexport
     dp.include_router(commands.router)   # /start, /reset, etc.
     dp.include_router(gcal.router)       # /gcal
     dp.include_router(reminder.router)   # /remind, /reminders
@@ -106,6 +107,12 @@ async def main() -> None:
         BotCommand(command="summarize", description="Суммаризация текста"),
         BotCommand(command="sum", description="Суммаризация по URL"),
         BotCommand(command="gcal", description="Google Календарь"),
+        BotCommand(command="exp", description="Добавить расход"),
+        BotCommand(command="week", description="Статистика за неделю"),
+        BotCommand(command="year", description="Статистика за год"),
+        BotCommand(command="budget", description="Недельный бюджет"),
+        BotCommand(command="newweek", description="Новая финансовая неделя"),
+        BotCommand(command="fexport", description="Экспорт расходов CSV"),
         BotCommand(command="stats", description="Статистика использования"),
     ])
 
