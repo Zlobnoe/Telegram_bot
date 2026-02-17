@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -44,7 +45,7 @@ Rules:
 async def _parse_natural(text: str, config: Config) -> dict | None:
     """Use LLM to parse natural language into a structured gcal command."""
     client = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_base_url)
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M (UTC)")
+    now = _now_local(config.timezone).strftime(f"%Y-%m-%d %H:%M ({config.timezone})")
     try:
         resp = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -90,8 +91,12 @@ def _format_events(events: list[dict], title: str) -> str:
     return "\n".join(lines)
 
 
-def _today() -> datetime:
-    return datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+def _now_local(tz_name: str) -> datetime:
+    return datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
+
+
+def _today(tz_name: str) -> datetime:
+    return _now_local(tz_name).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @router.message(Command("gcal"))
@@ -178,7 +183,7 @@ async def cmd_gcal(
 
 
 async def _show_events(message: Message, gcal: GCalService, period: str) -> None:
-    today = _today()
+    today = _today(gcal.timezone)
     if period == "tomorrow":
         date_from, date_to, title = today + timedelta(days=1), today + timedelta(days=2), "📅 <b>Завтра:</b>"
     elif period == "week":
@@ -254,7 +259,7 @@ async def _handle_del(message: Message, gcal: GCalService, event_id: str) -> Non
 
     # User passes short id (first 8 chars). We need to find full id.
     # Search today ± 30 days to find matching event
-    today = _today()
+    today = _today(gcal.timezone)
     try:
         events = await gcal.get_events(today - timedelta(days=30), today + timedelta(days=60))
     except Exception as e:
