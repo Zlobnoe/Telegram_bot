@@ -107,24 +107,18 @@ async def cmd_gcal(
 
     # /gcal (today)
     if not sub:
-        today = _today()
-        events = await gcal.get_events(today, today + timedelta(days=1))
-        await safe_reply(message, _format_events(events, "📅 <b>Сегодня:</b>"))
+        await _show_events(message, gcal, "today")
         return
 
     # Try exact subcommands first
     sub_lower = sub.lower()
 
     if sub_lower in ("tomorrow", "завтра"):
-        today = _today()
-        events = await gcal.get_events(today + timedelta(days=1), today + timedelta(days=2))
-        await safe_reply(message, _format_events(events, "📅 <b>Завтра:</b>"))
+        await _show_events(message, gcal, "tomorrow")
         return
 
     if sub_lower in ("week", "неделя", "неделю"):
-        today = _today()
-        events = await gcal.get_events(today, today + timedelta(days=7))
-        await safe_reply(message, _format_events(events, "📅 <b>Неделя:</b>"))
+        await _show_events(message, gcal, "week")
         return
 
     if sub.startswith("add "):
@@ -151,17 +145,7 @@ async def cmd_gcal(
     action = parsed["action"]
 
     if action == "view":
-        period = parsed.get("period", "today")
-        today = _today()
-        if period == "tomorrow":
-            events = await gcal.get_events(today + timedelta(days=1), today + timedelta(days=2))
-            await safe_reply(message, _format_events(events, "📅 <b>Завтра:</b>"))
-        elif period == "week":
-            events = await gcal.get_events(today, today + timedelta(days=7))
-            await safe_reply(message, _format_events(events, "📅 <b>Неделя:</b>"))
-        else:
-            events = await gcal.get_events(today, today + timedelta(days=1))
-            await safe_reply(message, _format_events(events, "📅 <b>Сегодня:</b>"))
+        await _show_events(message, gcal, parsed.get("period", "today"))
         return
 
     if action == "add":
@@ -184,21 +168,50 @@ async def cmd_gcal(
         else:
             end = start + timedelta(hours=1)
 
-        event = await gcal.create_event(summary, start, end)
-        eid = event.get("id", "")[:8]
-        await safe_reply(
-            message,
-            f"✅ Событие создано!\n"
-            f"  {start.strftime('%Y-%m-%d %H:%M')} — {end.strftime('%H:%M')}\n"
-            f"  {summary}\n"
-            f"  ID: <code>{eid}</code>",
-        )
+        await _create_event(message, gcal, summary, start, end)
         return
 
     if action == "delete":
         event_id = parsed.get("event_id", "")
         await _handle_del(message, gcal, event_id)
         return
+
+
+async def _show_events(message: Message, gcal: GCalService, period: str) -> None:
+    today = _today()
+    if period == "tomorrow":
+        date_from, date_to, title = today + timedelta(days=1), today + timedelta(days=2), "📅 <b>Завтра:</b>"
+    elif period == "week":
+        date_from, date_to, title = today, today + timedelta(days=7), "📅 <b>Неделя:</b>"
+    else:
+        date_from, date_to, title = today, today + timedelta(days=1), "📅 <b>Сегодня:</b>"
+
+    try:
+        events = await gcal.get_events(date_from, date_to)
+    except Exception as e:
+        logger.exception("Failed to get events")
+        await message.answer(f"Ошибка при получении событий: {e}")
+        return
+    await safe_reply(message, _format_events(events, title))
+
+
+async def _create_event(
+    message: Message, gcal: GCalService, summary: str, start: datetime, end: datetime,
+) -> None:
+    try:
+        event = await gcal.create_event(summary, start, end)
+    except Exception as e:
+        logger.exception("Failed to create event")
+        await message.answer(f"Ошибка при создании события: {e}")
+        return
+    eid = event.get("id", "")[:8]
+    await safe_reply(
+        message,
+        f"✅ Событие создано!\n"
+        f"  {start.strftime('%Y-%m-%d %H:%M')} — {end.strftime('%H:%M')}\n"
+        f"  {summary}\n"
+        f"  ID: <code>{eid}</code>",
+    )
 
 
 async def _handle_add(message: Message, gcal: GCalService, args: str) -> None:
@@ -231,15 +244,7 @@ async def _handle_add(message: Message, gcal: GCalService, args: str) -> None:
     else:
         end = start + timedelta(hours=1)
 
-    event = await gcal.create_event(summary, start, end)
-    eid = event.get("id", "")[:8]
-    await safe_reply(
-        message,
-        f"✅ Событие создано!\n"
-        f"  {start.strftime('%Y-%m-%d %H:%M')} — {end.strftime('%H:%M')}\n"
-        f"  {summary}\n"
-        f"  ID: <code>{eid}</code>",
-    )
+    await _create_event(message, gcal, summary, start, end)
 
 
 async def _handle_del(message: Message, gcal: GCalService, event_id: str) -> None:
@@ -250,7 +255,12 @@ async def _handle_del(message: Message, gcal: GCalService, event_id: str) -> Non
     # User passes short id (first 8 chars). We need to find full id.
     # Search today ± 30 days to find matching event
     today = _today()
-    events = await gcal.get_events(today - timedelta(days=30), today + timedelta(days=60))
+    try:
+        events = await gcal.get_events(today - timedelta(days=30), today + timedelta(days=60))
+    except Exception as e:
+        logger.exception("Failed to search events for deletion")
+        await message.answer(f"Ошибка при поиске события: {e}")
+        return
 
     full_id = None
     for ev in events:
