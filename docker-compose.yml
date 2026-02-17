@@ -5,6 +5,7 @@ services:
     env_file: .env
     volumes:
       - bot-data:/data
+      - ./credentials/google-credentials.json:/data/google-credentials.json:ro
 
 volumes:
   bot-data:
