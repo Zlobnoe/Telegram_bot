@@ -23,6 +23,7 @@ class Config:
     google_credentials_path: str | None
     google_calendar_id: str | None
     timezone: str
+    gcal_daily_hour: int
 
     @classmethod
     def from_env(cls) -> Config:
@@ -57,4 +58,5 @@ class Config:
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH") or None,
             google_calendar_id=os.getenv("GOOGLE_CALENDAR_ID") or None,
             timezone=os.getenv("TIMEZONE", "UTC"),
+            gcal_daily_hour=int(os.getenv("GCAL_DAILY_HOUR", "8")),
         )
