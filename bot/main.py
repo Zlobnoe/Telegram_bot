@@ -16,6 +16,7 @@ from bot.services.tts import TTSService
 from bot.services.skills import SkillsService
 from bot.services.reminder import ReminderService
 from bot.services.gcal import create_gcal_service
+from bot.services.gcal_digest import GCalDigestService
 from bot.middleware.auth import AuthMiddleware
 from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal
 
@@ -108,11 +109,19 @@ async def main() -> None:
         BotCommand(command="stats", description="Статистика использования"),
     ])
 
+    # gcal daily digest
+    gcal_digest = None
+    if gcal_service:
+        gcal_digest = GCalDigestService(bot, config, gcal_service)
+        gcal_digest.start()
+
     reminder_service.start()
 
     try:
         await dp.start_polling(bot)
     finally:
+        if gcal_digest:
+            await gcal_digest.stop()
         await reminder_service.stop()
         await repo.close()
         await bot.session.close()
