@@ -186,7 +186,7 @@ async def cmd_year(message: Message, repo: Repository) -> None:
         return
 
     total = sum(r["amount"] for r in records)
-    budget = settings["weekly_budget"]
+    budget = await repo.get_budget_for_week(user_id, 1, year)
 
     # group by week
     weekly: dict[int, float] = {}
