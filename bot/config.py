@@ -22,6 +22,7 @@ class Config:
     db_path: str
     google_credentials_path: str | None
     google_calendar_id: str | None
+    timezone: str
 
     @classmethod
     def from_env(cls) -> Config:
@@ -55,4 +56,5 @@ class Config:
             db_path=os.getenv("DB_PATH", "/data/bot.db"),
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH") or None,
             google_calendar_id=os.getenv("GOOGLE_CALENDAR_ID") or None,
+            timezone=os.getenv("TIMEZONE", "UTC"),
         )

@@ -64,7 +64,7 @@ async def main() -> None:
     dp["skill_service"] = skill_service
 
     # google calendar
-    gcal_service = create_gcal_service(config.google_credentials_path, config.google_calendar_id)
+    gcal_service = create_gcal_service(config.google_credentials_path, config.google_calendar_id, config.timezone)
     dp["gcal"] = gcal_service
 
     # reminder scheduler

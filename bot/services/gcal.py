@@ -14,8 +14,9 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
 class GCalService:
-    def __init__(self, credentials_path: str, calendar_id: str) -> None:
+    def __init__(self, credentials_path: str, calendar_id: str, timezone: str = "UTC") -> None:
         self.calendar_id = calendar_id
+        self.timezone = timezone
         creds = service_account.Credentials.from_service_account_file(
             credentials_path, scopes=SCOPES,
         )
@@ -29,8 +30,9 @@ class GCalService:
                 self._service.events()
                 .list(
                     calendarId=self.calendar_id,
-                    timeMin=date_from.isoformat() + "Z",
-                    timeMax=date_to.isoformat() + "Z",
+                    timeMin=date_from.isoformat(),
+                    timeMax=date_to.isoformat(),
+                    timeZone=self.timezone,
                     singleEvents=True,
                     orderBy="startTime",
                     maxResults=50,
@@ -47,8 +49,8 @@ class GCalService:
         def _create() -> dict:
             body = {
                 "summary": summary,
-                "start": {"dateTime": start.isoformat(), "timeZone": "UTC"},
-                "end": {"dateTime": end.isoformat(), "timeZone": "UTC"},
+                "start": {"dateTime": start.isoformat(), "timeZone": self.timezone},
+                "end": {"dateTime": end.isoformat(), "timeZone": self.timezone},
             }
             return (
                 self._service.events()
@@ -73,7 +75,7 @@ class GCalService:
 
 
 def create_gcal_service(
-    credentials_path: str | None, calendar_id: str | None,
+    credentials_path: str | None, calendar_id: str | None, timezone: str = "UTC",
 ) -> GCalService | None:
     if not credentials_path or not calendar_id:
         return None
@@ -81,7 +83,7 @@ def create_gcal_service(
         logger.warning("Google credentials file not found: %s", credentials_path)
         return None
     try:
-        return GCalService(credentials_path, calendar_id)
+        return GCalService(credentials_path, calendar_id, timezone)
     except Exception:
         logger.exception("Failed to init GCalService")
         return None
