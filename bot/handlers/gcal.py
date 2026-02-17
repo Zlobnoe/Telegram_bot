@@ -101,7 +101,7 @@ def _format_events(events: list[dict], title: str) -> str:
 
 
 def _now_local(tz_name: str) -> datetime:
-    return datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
+    return datetime.now(ZoneInfo(tz_name))
 
 
 def _today(tz_name: str) -> datetime:

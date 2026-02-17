@@ -377,3 +377,94 @@ class Repository:
         )
         await self._db.commit()
         return cursor.rowcount
+
+    # ── expenses ──────────────────────────────────────────
+
+    async def add_expense(self, user_id: int, amount: float, custom_week: int, year: int) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO expenses (user_id, amount, custom_week, year) VALUES (?, ?, ?, ?)",
+            (user_id, amount, custom_week, year),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_week_expenses(self, user_id: int, week: int, year: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM expenses WHERE user_id = ? AND custom_week = ? AND year = ? ORDER BY created_at",
+            (user_id, week, year),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_year_expenses(self, user_id: int, year: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM expenses WHERE user_id = ? AND year = ? ORDER BY created_at",
+            (user_id, year),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_all_expenses(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM expenses WHERE user_id = ? ORDER BY year, custom_week, created_at",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def delete_expense(self, expense_id: int, user_id: int) -> bool:
+        cursor = await self._db.execute(
+            "DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id)
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    # ── finance settings ──────────────────────────────────
+
+    async def get_finance_settings(self, user_id: int) -> dict | None:
+        cursor = await self._db.execute(
+            "SELECT * FROM finance_settings WHERE user_id = ?", (user_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def upsert_finance_settings(self, user_id: int, weekly_budget: float,
+                                       current_week: int, current_year: int) -> None:
+        await self._db.execute(
+            """INSERT INTO finance_settings (user_id, weekly_budget, current_week, current_year)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   weekly_budget=excluded.weekly_budget,
+                   current_week=excluded.current_week,
+                   current_year=excluded.current_year""",
+            (user_id, weekly_budget, current_week, current_year),
+        )
+        await self._db.commit()
+
+    # ── budget history ────────────────────────────────────
+
+    async def add_budget_history(self, user_id: int, amount: float, week_from: int, year_from: int) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO budget_history (user_id, amount, week_from, year_from) VALUES (?, ?, ?, ?)",
+            (user_id, amount, week_from, year_from),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_budget_history(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM budget_history WHERE user_id = ? ORDER BY year_from DESC, week_from DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_budget_for_week(self, user_id: int, week: int, year: int) -> float:
+        """Get budget that was active during a given week. Falls back to current settings."""
+        cursor = await self._db.execute(
+            """SELECT amount FROM budget_history
+               WHERE user_id = ? AND (year_from < ? OR (year_from = ? AND week_from <= ?))
+               ORDER BY year_from DESC, week_from DESC LIMIT 1""",
+            (user_id, year, year, week),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return row["amount"]
+        settings = await self.get_finance_settings(user_id)
+        return settings["weekly_budget"] if settings else 0
