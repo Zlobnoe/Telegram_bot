@@ -1,5 +1,6 @@
 services:
   bot:
+    build: .
     image: ghcr.io/zlobnoe/telegram_bot:latest
     restart: unless-stopped
     env_file: .env
