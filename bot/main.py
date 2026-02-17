@@ -15,8 +15,9 @@ from bot.services.stt import STTService
 from bot.services.tts import TTSService
 from bot.services.skills import SkillsService
 from bot.services.reminder import ReminderService
+from bot.services.gcal import create_gcal_service
 from bot.middleware.auth import AuthMiddleware
-from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,12 +63,17 @@ async def main() -> None:
     dp["tts"] = tts
     dp["skill_service"] = skill_service
 
+    # google calendar
+    gcal_service = create_gcal_service(config.google_credentials_path, config.google_calendar_id)
+    dp["gcal"] = gcal_service
+
     # reminder scheduler
     reminder_service = ReminderService(bot, repo)
 
     # register routers (order matters)
     dp.include_router(admin.router)      # callbacks + admin commands
     dp.include_router(commands.router)   # /start, /reset, etc.
+    dp.include_router(gcal.router)       # /gcal
     dp.include_router(reminder.router)   # /remind, /reminders
     dp.include_router(memory.router)     # /memory, /remember, /forget
     dp.include_router(skills.router)     # /skills + skill triggers
@@ -98,6 +104,7 @@ async def main() -> None:
         BotCommand(command="translate", description="Перевести текст"),
         BotCommand(command="summarize", description="Суммаризация текста"),
         BotCommand(command="sum", description="Суммаризация по URL"),
+        BotCommand(command="gcal", description="Google Календарь"),
         BotCommand(command="stats", description="Статистика использования"),
     ])
 

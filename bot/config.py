@@ -20,6 +20,8 @@ class Config:
     daily_token_limit: int
     monthly_token_limit: int
     db_path: str
+    google_credentials_path: str | None
+    google_calendar_id: str | None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -51,4 +53,6 @@ class Config:
             daily_token_limit=int(os.getenv("DAILY_TOKEN_LIMIT", "0")),
             monthly_token_limit=int(os.getenv("MONTHLY_TOKEN_LIMIT", "0")),
             db_path=os.getenv("DB_PATH", "/data/bot.db"),
+            google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH") or None,
+            google_calendar_id=os.getenv("GOOGLE_CALENDAR_ID") or None,
         )
