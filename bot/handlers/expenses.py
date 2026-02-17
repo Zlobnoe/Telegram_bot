@@ -124,16 +124,23 @@ async def cmd_week(message: Message, repo: Repository) -> None:
     settings = await _ensure_settings(repo, user_id)
 
     parts = message.text.split()
-    if len(parts) >= 2:
+    if len(parts) >= 3:
+        try:
+            week = int(parts[1])
+            year = int(parts[2])
+        except ValueError:
+            await message.answer("Использование: /week [номер] [год]")
+            return
+    elif len(parts) == 2:
         try:
             week = int(parts[1])
         except ValueError:
-            await message.answer("Использование: /week [номер_недели]")
+            await message.answer("Использование: /week [номер] [год]")
             return
+        year = settings["current_year"]
     else:
         week = settings["current_week"]
-
-    year = settings["current_year"]
+        year = settings["current_year"]
     records = await repo.get_week_expenses(user_id, week, year)
 
     if not records:
