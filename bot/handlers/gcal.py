@@ -3,22 +3,31 @@ from __future__ import annotations
 import json
 import logging
 import re
+import tempfile
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from aiogram import Router
-from aiogram.filters import Command
+from aiogram import Router, F
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 from openai import AsyncOpenAI
 
 from bot.config import Config
 from bot.services.gcal import GCalService
+from bot.services.stt import STTService
 from bot.utils import safe_reply
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 NOT_CONFIGURED = "Google Calendar не настроен. Добавьте GOOGLE_CREDENTIALS_PATH и GOOGLE_CALENDAR_ID в .env"
+
+
+class GCalState(StatesGroup):
+    waiting = State()
+
 
 PARSE_PROMPT = """\
 You are a calendar command parser. Current date/time: {now}.
@@ -101,7 +110,8 @@ def _today(tz_name: str) -> datetime:
 
 @router.message(Command("gcal"))
 async def cmd_gcal(
-    message: Message, config: Config, gcal: GCalService | None = None,
+    message: Message, state: FSMContext, config: Config,
+    gcal: GCalService | None = None,
 ) -> None:
     if gcal is None:
         await message.answer(NOT_CONFIGURED)
@@ -110,39 +120,103 @@ async def cmd_gcal(
     text = (message.text or "").split(maxsplit=1)
     sub = text[1].strip() if len(text) > 1 else ""
 
-    # /gcal (today)
+    # /gcal with no args — show today + enter waiting state
     if not sub:
         await _show_events(message, gcal, "today")
+        await state.set_state(GCalState.waiting)
+        await message.answer(
+            "Отправьте текстом или голосом что сделать с календарём.\n"
+            "Например: <i>встреча с руководством в четверг в 11:00</i>\n"
+            "/cancel — отмена",
+            parse_mode="HTML",
+        )
         return
 
-    # Try exact subcommands first
-    sub_lower = sub.lower()
+    # Direct subcommands (no FSM needed)
+    await _process_gcal_input(message, state, config, gcal, sub)
+
+
+@router.message(Command("cancel"), StateFilter(GCalState.waiting))
+async def cmd_cancel(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Режим календаря завершён.")
+
+
+@router.message(StateFilter(GCalState.waiting), F.voice)
+async def gcal_voice(
+    message: Message, state: FSMContext, config: Config,
+    gcal: GCalService | None = None, stt: STTService | None = None,
+) -> None:
+    if gcal is None or stt is None:
+        await state.clear()
+        return
+
+    typing = await message.answer("🎤 Распознаю...")
+    try:
+        file = await message.bot.get_file(message.voice.file_id)
+        ogg_path = tempfile.mktemp(suffix=".ogg")
+        await message.bot.download_file(file.file_path, ogg_path)
+        text = await stt.transcribe(ogg_path)
+    except Exception:
+        logger.exception("Voice transcription error in gcal")
+        await typing.edit_text("Не удалось распознать голосовое сообщение.")
+        return
+
+    await typing.edit_text(f"🎤 <i>{text}</i>\n\n⏳ Обрабатываю...", parse_mode="HTML")
+    await _process_gcal_input(message, state, config, gcal, text)
+
+
+@router.message(StateFilter(GCalState.waiting), F.text)
+async def gcal_text(
+    message: Message, state: FSMContext, config: Config,
+    gcal: GCalService | None = None,
+) -> None:
+    if gcal is None:
+        await state.clear()
+        return
+
+    await _process_gcal_input(message, state, config, gcal, message.text.strip())
+
+
+async def _process_gcal_input(
+    message: Message, state: FSMContext, config: Config,
+    gcal: GCalService, text: str,
+) -> None:
+    """Process calendar input — exact commands or natural language."""
+    sub_lower = text.lower()
 
     if sub_lower in ("tomorrow", "завтра"):
         await _show_events(message, gcal, "tomorrow")
+        await state.clear()
         return
 
     if sub_lower in ("week", "неделя", "неделю"):
         await _show_events(message, gcal, "week")
+        await state.clear()
         return
 
-    if sub.startswith("add "):
-        await _handle_add(message, gcal, sub[4:].strip())
+    if sub_lower in ("today", "сегодня"):
+        await _show_events(message, gcal, "today")
+        await state.clear()
         return
 
-    if sub.startswith("del "):
-        await _handle_del(message, gcal, sub[4:].strip())
+    if text.startswith("add "):
+        await _handle_add(message, gcal, text[4:].strip())
+        await state.clear()
         return
 
-    # No exact match — parse with LLM
-    parsed = await _parse_natural(sub, config)
+    if text.startswith("del "):
+        await _handle_del(message, gcal, text[4:].strip())
+        await state.clear()
+        return
+
+    # Natural language — parse with LLM
+    parsed = await _parse_natural(text, config)
     if parsed is None or parsed.get("action") == "unknown":
         await message.answer(
-            "Не удалось понять команду. Примеры:\n"
-            "/gcal — события на сегодня\n"
-            "/gcal завтра — на завтра\n"
-            "/gcal создай встречу на завтра в 15:00\n"
-            "/gcal del &lt;id&gt; — удалить событие",
+            "Не удалось понять. Попробуйте ещё раз, например:\n"
+            "<i>встреча с клиентом в пятницу в 14:00</i>\n"
+            "/cancel — выход",
             parse_mode="HTML",
         )
         return
@@ -151,6 +225,7 @@ async def cmd_gcal(
 
     if action == "view":
         await _show_events(message, gcal, parsed.get("period", "today"))
+        await state.clear()
         return
 
     if action == "add":
@@ -174,11 +249,13 @@ async def cmd_gcal(
             end = start + timedelta(hours=1)
 
         await _create_event(message, gcal, summary, start, end)
+        await state.clear()
         return
 
     if action == "delete":
         event_id = parsed.get("event_id", "")
         await _handle_del(message, gcal, event_id)
+        await state.clear()
         return
 
 
@@ -220,7 +297,6 @@ async def _create_event(
 
 
 async def _handle_add(message: Message, gcal: GCalService, args: str) -> None:
-    # Pattern: YYYY-MM-DD HH:MM[-HH:MM] summary
     m = re.match(
         r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:-(\d{2}:\d{2}))?\s+(.+)",
         args,
@@ -257,8 +333,6 @@ async def _handle_del(message: Message, gcal: GCalService, event_id: str) -> Non
         await message.answer("Использование: /gcal del <id>")
         return
 
-    # User passes short id (first 8 chars). We need to find full id.
-    # Search today ± 30 days to find matching event
     today = _today(gcal.timezone)
     try:
         events = await gcal.get_events(today - timedelta(days=30), today + timedelta(days=60))
