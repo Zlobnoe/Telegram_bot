@@ -28,10 +28,40 @@ def _extract_text(response) -> str:
 
 class GeminiService:
     def __init__(self, config: Config, repo: Repository) -> None:
-        self._client = genai.Client(api_key=config.gemini_api_key)
+        self._clients = [genai.Client(api_key=key) for key in config.gemini_api_keys]
+        self._current_idx = 0
         self._config = config
         self._repo = repo
         self._skills_prompt: str = ""
+
+    @property
+    def _client(self) -> genai.Client:
+        """Current client (round-robin)."""
+        return self._clients[self._current_idx % len(self._clients)]
+
+    def _rotate(self) -> None:
+        """Switch to next API key."""
+        old = self._current_idx
+        self._current_idx = (self._current_idx + 1) % len(self._clients)
+        logger.info("Gemini key rotated: %d -> %d", old, self._current_idx)
+
+    async def _call_with_rotation(self, func, *args, **kwargs):
+        """Call func(client, *args, **kwargs) with key rotation on rate-limit errors."""
+        last_err = None
+        for _ in range(len(self._clients)):
+            try:
+                result = await func(self._client, *args, **kwargs)
+                self._rotate()  # round-robin for next call
+                return result
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning("Gemini rate limit on key %d: %s", self._current_idx, err_str[:100])
+                    last_err = e
+                    self._rotate()
+                    continue
+                raise  # non-rate-limit error — don't retry
+        raise last_err  # all keys exhausted
 
     def set_skills_prompt(self, prompt: str) -> None:
         self._skills_prompt = prompt
@@ -80,21 +110,23 @@ class GeminiService:
 
     async def _extract_and_save_facts(self, user_id: int, user_message: str, assistant_response: str) -> None:
         try:
-            response = await self._client.aio.models.generate_content(
-                model=self._config.gemini_model,
-                contents=user_message,
-                config=types.GenerateContentConfig(
-                    system_instruction=(
-                        "Extract personal facts about the user from this conversation exchange. "
-                        "Only extract FACTUAL info the user explicitly stated about themselves: "
-                        "name, age, location, profession, hobbies, preferences, family, pets, etc. "
-                        "Do NOT extract opinions, questions, or temporary states. "
-                        "Return each fact on a new line, without numbering or bullets. "
-                        "If there are no personal facts, respond with exactly: NONE"
+            async def _gen(client):
+                return await client.aio.models.generate_content(
+                    model=self._config.gemini_model,
+                    contents=user_message,
+                    config=types.GenerateContentConfig(
+                        system_instruction=(
+                            "Extract personal facts about the user from this conversation exchange. "
+                            "Only extract FACTUAL info the user explicitly stated about themselves: "
+                            "name, age, location, profession, hobbies, preferences, family, pets, etc. "
+                            "Do NOT extract opinions, questions, or temporary states. "
+                            "Return each fact on a new line, without numbering or bullets. "
+                            "If there are no personal facts, respond with exactly: NONE"
+                        ),
+                        max_output_tokens=200,
                     ),
-                    max_output_tokens=200,
-                ),
-            )
+                )
+            response = await self._call_with_rotation(_gen)
             answer = _extract_text(response).strip()
             if answer.upper() == "NONE" or len(answer) < 3:
                 return
@@ -124,13 +156,13 @@ class GeminiService:
 
         logger.info("Gemini chat request: model=%s, messages=%d", self._config.gemini_model, len(contents))
 
-        response = await self._client.aio.models.generate_content(
-            model=self._config.gemini_model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-            ),
-        )
+        async def _gen(client):
+            return await client.aio.models.generate_content(
+                model=self._config.gemini_model,
+                contents=contents,
+                config=types.GenerateContentConfig(system_instruction=system),
+            )
+        response = await self._call_with_rotation(_gen)
 
         assistant_text = _extract_text(response)
         tokens_used = (
@@ -156,12 +188,14 @@ class GeminiService:
         contents = self._build_contents(history, max_chars)
         system = self._build_system_instruction(conv, memory_prompt)
 
-        logger.info("Gemini stream request: model=%s, messages=%d", self._config.gemini_model, len(contents))
+        logger.info("Gemini stream request: model=%s, messages=%d, key=%d", self._config.gemini_model, len(contents), self._current_idx)
 
         full_text = ""
         last_edit = 0
+        client = self._client
+        self._rotate()
 
-        async for chunk in self._client.aio.models.generate_content_stream(
+        async for chunk in client.aio.models.generate_content_stream(
             model=self._config.gemini_model,
             contents=contents,
             config=types.GenerateContentConfig(
@@ -210,7 +244,9 @@ class GeminiService:
         if on_chunk:
             full_text = ""
             last_edit = 0
-            async for chunk in self._client.aio.models.generate_content_stream(
+            client = self._client
+            self._rotate()
+            async for chunk in client.aio.models.generate_content_stream(
                 model=self._config.gemini_model,
                 contents=contents,
                 config=types.GenerateContentConfig(system_instruction=system),
@@ -228,11 +264,13 @@ class GeminiService:
             await self._repo.log_api_usage(user_id, "chat", self._config.gemini_model, tokens_est)
             return full_text
         else:
-            response = await self._client.aio.models.generate_content(
-                model=self._config.gemini_model,
-                contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system),
-            )
+            async def _gen(client):
+                return await client.aio.models.generate_content(
+                    model=self._config.gemini_model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(system_instruction=system),
+                )
+            response = await self._call_with_rotation(_gen)
             assistant_text = _extract_text(response)
             tokens_used = (
                 response.usage_metadata.total_token_count
@@ -256,14 +294,16 @@ class GeminiService:
 
         logger.info("Gemini web_search: model=%s, messages=%d", self._config.gemini_model, len(contents))
 
-        response = await self._client.aio.models.generate_content(
-            model=self._config.gemini_model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
-        )
+        async def _gen(client):
+            return await client.aio.models.generate_content(
+                model=self._config.gemini_model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
+            )
+        response = await self._call_with_rotation(_gen)
 
         assistant_text = _extract_text(response)
 
@@ -297,21 +337,23 @@ class GeminiService:
     # ── should_search ────────────────────────────────────────────
 
     async def should_search(self, user_message: str) -> bool:
-        response = await self._client.aio.models.generate_content(
-            model=self._config.gemini_model,
-            contents=user_message,
-            config=types.GenerateContentConfig(
-                system_instruction=(
-                    "You decide if a web search is needed to answer the user's message. "
-                    "If the message asks about current events, real-time data, recent news, "
-                    "specific facts you might not know, prices, weather, or anything that "
-                    "requires up-to-date information — respond with ONLY the word YES. "
-                    "If no search is needed (general chat, coding, math, creative tasks) — respond with ONLY the word NO. "
-                    "Never explain, just output YES or NO."
+        async def _gen(client):
+            return await client.aio.models.generate_content(
+                model=self._config.gemini_model,
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=(
+                        "You decide if a web search is needed to answer the user's message. "
+                        "If the message asks about current events, real-time data, recent news, "
+                        "specific facts you might not know, prices, weather, or anything that "
+                        "requires up-to-date information — respond with ONLY the word YES. "
+                        "If no search is needed (general chat, coding, math, creative tasks) — respond with ONLY the word NO. "
+                        "Never explain, just output YES or NO."
+                    ),
+                    max_output_tokens=10,
                 ),
-                max_output_tokens=10,
-            ),
-        )
+            )
+        response = await self._call_with_rotation(_gen)
         answer = _extract_text(response).strip().upper()
         return answer == "YES"
 
@@ -350,11 +392,13 @@ class GeminiService:
 
         logger.info("Gemini vision request: model=%s", self._config.gemini_model)
 
-        response = await self._client.aio.models.generate_content(
-            model=self._config.gemini_model,
-            contents=types.Content(role="user", parts=parts),
-            config=types.GenerateContentConfig(system_instruction=system),
-        )
+        async def _gen(client):
+            return await client.aio.models.generate_content(
+                model=self._config.gemini_model,
+                contents=types.Content(role="user", parts=parts),
+                config=types.GenerateContentConfig(system_instruction=system),
+            )
+        response = await self._call_with_rotation(_gen)
 
         assistant_text = _extract_text(response)
         tokens_used = (
@@ -372,13 +416,15 @@ class GeminiService:
         """Generate image using Gemini imagen model. Returns PNG bytes."""
         logger.info("Gemini image generation: prompt=%s", prompt[:80])
 
-        response = await self._client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE", "TEXT"],
-            ),
-        )
+        async def _gen(client):
+            return await client.aio.models.generate_content(
+                model="gemini-2.0-flash-exp",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE", "TEXT"],
+                ),
+            )
+        response = await self._call_with_rotation(_gen)
 
         # find inline image data in response
         for part in response.candidates[0].content.parts:

@@ -40,10 +40,10 @@ async def main() -> None:
 
     # services
     gemini = None
-    if config.gemini_api_key:
+    if config.gemini_api_keys:
         from bot.services.gemini import GeminiService
         gemini = GeminiService(config, repo)
-        logger.info("Gemini enabled: model=%s", config.gemini_model)
+        logger.info("Gemini enabled: model=%s, keys=%d", config.gemini_model, len(config.gemini_api_keys))
     llm = LLMService(config, repo, gemini=gemini)
     stt = STTService(config)
     tts = TTSService(config)
