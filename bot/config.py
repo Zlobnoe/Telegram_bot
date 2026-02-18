@@ -26,6 +26,9 @@ class Config:
     gcal_daily_hour: int
     gemini_api_keys: list[str]
     gemini_model: str
+    weather_lat: float
+    weather_lon: float
+    weather_city: str
 
     @classmethod
     def from_env(cls) -> Config:
@@ -63,4 +66,7 @@ class Config:
             gcal_daily_hour=int(os.getenv("GCAL_DAILY_HOUR", "8")),
             gemini_api_keys=[k.strip() for k in (os.getenv("GEMINI_API_KEY") or "").split(",") if k.strip()],
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            weather_lat=float(os.getenv("WEATHER_LAT", "55.1540")),
+            weather_lon=float(os.getenv("WEATHER_LON", "61.4291")),
+            weather_city=os.getenv("WEATHER_CITY", "Челябинск"),
         )
