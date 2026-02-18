@@ -246,7 +246,7 @@ def _format_usage_block(title: str, api_usage: list[dict]) -> str:
     return "\n".join(lines)
 
 
-@router.message(Command("usage", "stats"))
+@router.message(Command("usage"))
 async def cmd_usage(message: Message, repo: Repository) -> None:
     user_id = message.from_user.id
 
