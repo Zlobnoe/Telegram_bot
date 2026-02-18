@@ -83,9 +83,9 @@ async def main() -> None:
     dp.include_router(gcal.router)       # /gcal
     dp.include_router(reminder.router)   # /remind, /reminders
     dp.include_router(memory.router)     # /memory, /remember, /forget
-    dp.include_router(skills.router)     # /skills + skill triggers
-    dp.include_router(web.router)        # /search
+    dp.include_router(web.router)        # /search (before skills — skills catch-all eats /-commands)
     dp.include_router(image.router)      # /image
+    dp.include_router(skills.router)     # /skills + skill triggers
     dp.include_router(summarize.router)  # URL auto-summarize
     dp.include_router(voice.router)      # voice messages
     dp.include_router(vision.router)     # photo messages
