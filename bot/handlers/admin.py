@@ -192,10 +192,14 @@ async def cmd_admin(message: Message, repo: Repository, config: Config) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, repo: Repository, config: Config) -> None:
+    parts = message.text.split(maxsplit=1)
+
+    # non-admin: show own usage stats
     if not _is_admin(message.from_user.id, config):
+        from bot.handlers.commands import cmd_usage
+        await cmd_usage(message, repo)
         return
 
-    parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("Usage: /stats <user\\_id>", parse_mode="Markdown")
         return
