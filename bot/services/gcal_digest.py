@@ -64,7 +64,7 @@ class GCalDigestService:
     async def _send_digest(self) -> None:
         tz = ZoneInfo(self._config.timezone)
         today = datetime.now(tz).replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=None,
+            hour=0, minute=0, second=0, microsecond=0,
         )
         tomorrow = today + timedelta(days=1)
 
