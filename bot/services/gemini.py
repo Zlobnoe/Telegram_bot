@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from io import BytesIO
 
 from google import genai
 from google.genai import types
@@ -13,6 +12,18 @@ from bot.database.repository import Repository
 logger = logging.getLogger(__name__)
 
 STREAM_EDIT_INTERVAL = 1.5
+
+
+def _extract_text(response) -> str:
+    """Safely extract text from Gemini response (response.text can be None)."""
+    if response.text:
+        return response.text
+    # fallback: manually extract from parts
+    if response.candidates:
+        for part in response.candidates[0].content.parts:
+            if part.text:
+                return part.text
+    raise ValueError("Gemini returned empty response")
 
 
 class GeminiService:
@@ -84,7 +95,7 @@ class GeminiService:
                     max_output_tokens=200,
                 ),
             )
-            answer = response.text.strip()
+            answer = _extract_text(response).strip()
             if answer.upper() == "NONE" or len(answer) < 3:
                 return
 
@@ -121,7 +132,7 @@ class GeminiService:
             ),
         )
 
-        assistant_text = response.text
+        assistant_text = _extract_text(response)
         tokens_used = (
             response.usage_metadata.total_token_count
             if response.usage_metadata else 0
@@ -222,7 +233,7 @@ class GeminiService:
                 contents=contents,
                 config=types.GenerateContentConfig(system_instruction=system),
             )
-            assistant_text = response.text
+            assistant_text = _extract_text(response)
             tokens_used = (
                 response.usage_metadata.total_token_count
                 if response.usage_metadata else 0
@@ -254,7 +265,7 @@ class GeminiService:
             ),
         )
 
-        assistant_text = response.text
+        assistant_text = _extract_text(response)
 
         # extract citations from grounding metadata
         sources = []
@@ -301,7 +312,7 @@ class GeminiService:
                 max_output_tokens=10,
             ),
         )
-        answer = response.text.strip().upper()
+        answer = _extract_text(response).strip().upper()
         return answer == "YES"
 
     # ── vision ───────────────────────────────────────────────────
@@ -319,6 +330,16 @@ class GeminiService:
             image_bytes = img_resp.content
             content_type = img_resp.headers.get("content-type", "image/jpeg")
 
+        # Telegram often returns application/octet-stream — detect from URL
+        if "octet-stream" in content_type:
+            url_lower = image_url.lower()
+            if ".png" in url_lower:
+                content_type = "image/png"
+            elif ".webp" in url_lower:
+                content_type = "image/webp"
+            else:
+                content_type = "image/jpeg"
+
         system = self._build_system_instruction(conv)
 
         parts = [
@@ -335,7 +356,7 @@ class GeminiService:
             config=types.GenerateContentConfig(system_instruction=system),
         )
 
-        assistant_text = response.text
+        assistant_text = _extract_text(response)
         tokens_used = (
             response.usage_metadata.total_token_count
             if response.usage_metadata else 0
