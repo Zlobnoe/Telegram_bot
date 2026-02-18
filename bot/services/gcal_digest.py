@@ -9,23 +9,31 @@ from aiogram import Bot
 
 from bot.config import Config
 from bot.services.gcal import GCalService
+from bot.services.weather import WeatherService
 
 logger = logging.getLogger(__name__)
 
 
 class GCalDigestService:
-    """Sends daily morning digest of today's calendar events."""
+    """Sends daily morning digest: calendar events + weather forecast."""
 
-    def __init__(self, bot: Bot, config: Config, gcal: GCalService) -> None:
+    def __init__(
+        self,
+        bot: Bot,
+        config: Config,
+        gcal: GCalService | None,
+        weather: WeatherService,
+    ) -> None:
         self._bot = bot
         self._config = config
         self._gcal = gcal
+        self._weather = weather
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
         logger.info(
-            "GCal daily digest scheduled at %02d:00 (%s)",
+            "Daily digest scheduled at %02d:00 (%s)",
             self._config.gcal_daily_hour, self._config.timezone,
         )
 
@@ -50,50 +58,69 @@ class GCalDigestService:
     async def _loop(self) -> None:
         while True:
             wait = self._seconds_until_next_run()
-            logger.info("GCal digest: next run in %.0f seconds", wait)
+            logger.info("Daily digest: next run in %.0f seconds", wait)
             await asyncio.sleep(wait)
 
             try:
                 await self._send_digest()
             except Exception:
-                logger.exception("GCal digest error")
+                logger.exception("Daily digest error")
 
             # sleep a bit to avoid double-firing
             await asyncio.sleep(60)
 
-    async def _send_digest(self) -> None:
-        tz = ZoneInfo(self._config.timezone)
-        today = datetime.now(tz).replace(
-            hour=0, minute=0, second=0, microsecond=0,
-        )
-        tomorrow = today + timedelta(days=1)
+    async def _build_calendar_block(self, today: datetime) -> str:
+        """Return calendar events block, or empty string if gcal not configured."""
+        if self._gcal is None:
+            return ""
 
-        events = await self._gcal.get_events(today, tomorrow)
+        tomorrow = today + timedelta(days=1)
+        try:
+            events = await self._gcal.get_events(today, tomorrow)
+        except Exception:
+            logger.exception("Failed to fetch calendar events for digest")
+            return "📅 Не удалось получить события календаря"
 
         if not events:
-            text = "📅 <b>Доброе утро!</b>\nНа сегодня событий нет."
-        else:
-            lines = [f"📅 <b>Доброе утро! Сегодня {today.strftime('%d.%m.%Y')}:</b>"]
-            for ev in events:
-                start = ev.get("start", {})
-                dt_str = start.get("dateTime", start.get("date", ""))
-                try:
-                    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                    time_str = dt.strftime("%H:%M")
-                except (ValueError, AttributeError):
-                    time_str = dt_str
-                summary = ev.get("summary", "(без названия)")
-                lines.append(f"  {time_str} — {summary}")
-            text = "\n".join(lines)
+            return f"📅 <b>Сегодня {today.strftime('%d.%m.%Y')}:</b>\nСобытий нет"
 
-        # Send to admin (single user bot)
+        lines = [f"📅 <b>Сегодня {today.strftime('%d.%m.%Y')}:</b>"]
+        for ev in events:
+            start = ev.get("start", {})
+            dt_str = start.get("dateTime", start.get("date", ""))
+            try:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                time_str = dt.strftime("%H:%M")
+            except (ValueError, AttributeError):
+                time_str = dt_str
+            summary = ev.get("summary", "(без названия)")
+            lines.append(f"  {time_str} — {summary}")
+        return "\n".join(lines)
+
+    async def _send_digest(self) -> None:
         chat_id = self._config.admin_id
         if not chat_id:
-            logger.warning("GCal digest: ADMIN_ID not set, skipping")
+            logger.warning("Daily digest: ADMIN_ID not set, skipping")
             return
+
+        tz = ZoneInfo(self._config.timezone)
+        today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Fetch calendar and weather in parallel
+        calendar_block, weather_block = await asyncio.gather(
+            self._build_calendar_block(today),
+            self._weather.get_forecast_text(),
+        )
+
+        parts = ["☀️ <b>Доброе утро!</b>"]
+        if calendar_block:
+            parts.append(calendar_block)
+        parts.append(weather_block)
+
+        text = "\n\n".join(parts)
 
         try:
             await self._bot.send_message(chat_id, text, parse_mode="HTML")
-            logger.info("GCal digest sent to %d (%d events)", chat_id, len(events))
+            logger.info("Daily digest sent to %d", chat_id)
         except Exception:
-            logger.exception("Failed to send GCal digest")
+            logger.exception("Failed to send daily digest")
