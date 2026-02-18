@@ -17,6 +17,7 @@ router = Router()
 
 @router.message(Command("search"))
 async def cmd_search(message: Message, llm: LLMService, repo: Repository, config: Config) -> None:
+    logger.info("/search handler called, text=%s", message.text[:80] if message.text else None)
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("Usage: /search <query>")
