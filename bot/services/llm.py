@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
 
 from bot.config import Config
 from bot.database.repository import Repository
+
+if TYPE_CHECKING:
+    from bot.services.gemini import GeminiService
 
 logger = logging.getLogger(__name__)
 
@@ -15,18 +19,21 @@ STREAM_EDIT_INTERVAL = 1.5
 
 
 class LLMService:
-    def __init__(self, config: Config, repo: Repository) -> None:
+    def __init__(self, config: Config, repo: Repository, gemini: GeminiService | None = None) -> None:
         self._client = AsyncOpenAI(
             api_key=config.openai_api_key,
             base_url=config.openai_base_url,
         )
         self._config = config
         self._repo = repo
+        self._gemini = gemini
         self._skills_prompt: str = ""
 
     def set_skills_prompt(self, prompt: str) -> None:
         """Set skills context to inject into system prompt."""
         self._skills_prompt = prompt
+        if self._gemini:
+            self._gemini.set_skills_prompt(prompt)
 
     async def check_limits(self, user_id: int) -> str | None:
         """Return error message if limits exceeded, None otherwise."""
@@ -62,6 +69,9 @@ class LLMService:
 
     async def _extract_and_save_facts(self, user_id: int, user_message: str, assistant_response: str) -> None:
         """Ask LLM to extract personal facts from the conversation."""
+        if self._gemini:
+            await self._gemini._extract_and_save_facts(user_id, user_message, assistant_response)
+            return
         try:
             response = await self._client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -120,7 +130,30 @@ class LLMService:
 
         return messages
 
+    async def _delete_last_user_message(self, conv_id: int) -> None:
+        """Delete the last message in conversation (used for Gemini fallback cleanup)."""
+        cursor = await self._repo._db.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1",
+            (conv_id,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            await self._repo._db.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
+            await self._repo._db.commit()
+
     async def chat(self, user_id: int, user_message: str) -> str:
+        if self._gemini:
+            try:
+                return await self._gemini.chat(user_id, user_message)
+            except Exception as e:
+                logger.warning("Gemini chat failed (%s), falling back to OpenAI", e)
+                # Gemini added user message before failing — remove it
+                conv_id, _ = await self._ensure_conversation(user_id)
+                await self._delete_last_user_message(conv_id)
+
+        return await self._chat_openai(user_id, user_message)
+
+    async def _chat_openai(self, user_id: int, user_message: str) -> str:
         conv_id, conv = await self._ensure_conversation(user_id)
         await self._repo.add_message(conv_id, "user", user_message)
 
@@ -143,6 +176,17 @@ class LLMService:
 
     async def chat_stream(self, user_id: int, user_message: str, on_chunk):
         """Stream chat response, calling on_chunk(accumulated_text) periodically."""
+        if self._gemini:
+            try:
+                return await self._gemini.chat_stream(user_id, user_message, on_chunk)
+            except Exception as e:
+                logger.warning("Gemini chat_stream failed (%s), falling back to OpenAI", e)
+                conv_id, _ = await self._ensure_conversation(user_id)
+                await self._delete_last_user_message(conv_id)
+
+        return await self._chat_stream_openai(user_id, user_message, on_chunk)
+
+    async def _chat_stream_openai(self, user_id: int, user_message: str, on_chunk):
         conv_id, conv = await self._ensure_conversation(user_id)
         await self._repo.add_message(conv_id, "user", user_message)
 
@@ -182,6 +226,17 @@ class LLMService:
 
     async def chat_with_search(self, user_id: int, user_message: str, search_results: str, on_chunk=None) -> str:
         """Chat with injected context (skill results, etc.)."""
+        if self._gemini:
+            try:
+                return await self._gemini.chat_with_search(user_id, user_message, search_results, on_chunk)
+            except Exception as e:
+                logger.warning("Gemini chat_with_search failed (%s), falling back to OpenAI", e)
+                conv_id, _ = await self._ensure_conversation(user_id)
+                await self._delete_last_user_message(conv_id)
+
+        return await self._chat_with_search_openai(user_id, user_message, search_results, on_chunk)
+
+    async def _chat_with_search_openai(self, user_id: int, user_message: str, search_results: str, on_chunk=None) -> str:
         conv_id, conv = await self._ensure_conversation(user_id)
         await self._repo.add_message(conv_id, "user", user_message)
 
@@ -229,6 +284,18 @@ class LLMService:
             return assistant_text
 
     async def chat_web_search(self, user_id: int, user_message: str, on_chunk=None) -> str:
+        """Chat with web search. Tries Gemini (Google Search grounding), falls back to OpenAI."""
+        if self._gemini:
+            try:
+                return await self._gemini.chat_web_search(user_id, user_message, on_chunk)
+            except Exception as e:
+                logger.warning("Gemini web_search failed (%s), falling back to OpenAI", e)
+                conv_id, _ = await self._ensure_conversation(user_id)
+                await self._delete_last_user_message(conv_id)
+
+        return await self._chat_web_search_openai(user_id, user_message, on_chunk)
+
+    async def _chat_web_search_openai(self, user_id: int, user_message: str, on_chunk=None) -> str:
         """Chat using OpenAI Responses API with built-in web_search tool."""
         conv_id, conv = await self._ensure_conversation(user_id)
         await self._repo.add_message(conv_id, "user", user_message)
@@ -298,6 +365,12 @@ class LLMService:
 
     async def should_search(self, user_message: str) -> bool:
         """Ask LLM if web search is needed. Returns True/False."""
+        if self._gemini:
+            try:
+                return await self._gemini.should_search(user_message)
+            except Exception as e:
+                logger.warning("Gemini should_search failed (%s), falling back to OpenAI", e)
+
         response = await self._client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -317,6 +390,17 @@ class LLMService:
         return answer == "YES"
 
     async def chat_vision(self, user_id: int, image_url: str, caption: str = "") -> str:
+        if self._gemini:
+            try:
+                return await self._gemini.chat_vision(user_id, image_url, caption)
+            except Exception as e:
+                logger.warning("Gemini vision failed (%s), falling back to OpenAI", e)
+                conv_id, _ = await self._ensure_conversation(user_id)
+                await self._delete_last_user_message(conv_id)
+
+        return await self._chat_vision_openai(user_id, image_url, caption)
+
+    async def _chat_vision_openai(self, user_id: int, image_url: str, caption: str = "") -> str:
         conv_id, conv = await self._ensure_conversation(user_id)
         text = caption or "What do you see in this image?"
         await self._repo.add_message(conv_id, "user", text, content_type="vision", image_url=image_url)
@@ -351,11 +435,21 @@ class LLMService:
 
         await self._repo.delete_last_exchange(conv_id)
 
-        # re-send
+        # re-send (uses Gemini fallback via self.chat)
         return await self.chat(user_id, last_user_msg)
 
     async def generate_image(self, user_id: int, prompt: str) -> bytes | str:
-        """Generate image. Returns bytes (base64-decoded) or URL string."""
+        """Generate image. Tries Gemini first, falls back to OpenAI."""
+        if self._gemini:
+            try:
+                return await self._gemini.generate_image(user_id, prompt)
+            except Exception as e:
+                logger.warning("Gemini image gen failed (%s), falling back to OpenAI", e)
+
+        return await self._generate_image_openai(user_id, prompt)
+
+    async def _generate_image_openai(self, user_id: int, prompt: str) -> bytes | str:
+        """Generate image via OpenAI. Returns bytes (base64-decoded) or URL string."""
         model = self._config.image_model
         # gpt-image-1 only supports b64_json
         if "gpt-image" in model:
