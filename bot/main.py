@@ -39,7 +39,12 @@ async def main() -> None:
     await repo.connect()
 
     # services
-    llm = LLMService(config, repo)
+    gemini = None
+    if config.gemini_api_key:
+        from bot.services.gemini import GeminiService
+        gemini = GeminiService(config, repo)
+        logger.info("Gemini enabled: model=%s", config.gemini_model)
+    llm = LLMService(config, repo, gemini=gemini)
     stt = STTService(config)
     tts = TTSService(config)
 

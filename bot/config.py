@@ -24,6 +24,8 @@ class Config:
     google_calendar_id: str | None
     timezone: str
     gcal_daily_hour: int
+    gemini_api_key: str | None
+    gemini_model: str
 
     @classmethod
     def from_env(cls) -> Config:
@@ -59,4 +61,6 @@ class Config:
             google_calendar_id=os.getenv("GOOGLE_CALENDAR_ID") or None,
             timezone=os.getenv("TIMEZONE", "UTC"),
             gcal_daily_hour=int(os.getenv("GCAL_DAILY_HOUR", "8")),
+            gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         )
