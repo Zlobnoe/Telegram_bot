@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import io
 
@@ -123,7 +124,7 @@ def _section_text(key: str) -> str:
     title, commands = _SECTIONS[key]
     lines = [f"<b>{title}</b>\n"]
     for cmd, desc in commands:
-        lines.append(f"<code>{cmd}</code> — {desc}")
+        lines.append(f"<code>{html.escape(cmd)}</code> — {desc}")
     return "\n".join(lines)
 
 
