@@ -60,6 +60,7 @@ _SECTIONS = {
             ("/gcal", "События на сегодня"),
             ("/gcal_tomorrow", "События на завтра"),
             ("/gcal_week", "События на неделю"),
+            ("/gcal_calendars", "Список подключённых календарей"),
             ("/gcal add <дата> <время> <текст>", "Добавить событие"),
             ("/gcal del <id>", "Удалить событие"),
         ],
@@ -70,7 +71,8 @@ _SECTIONS = {
             ("/exp", "Добавить расход"),
             ("/week [N]", "Статистика за N-ю неделю"),
             ("/year [YYYY]", "Статистика за год"),
-            ("/budget [сумма|list]", "Недельный бюджет"),
+            ("/budget <сумма>", "Установить недельный бюджет"),
+            ("/budget_list", "История бюджета"),
             ("/newweek", "Новая финансовая неделя"),
             ("/fexport", "Экспорт расходов в CSV"),
         ],
@@ -124,9 +126,9 @@ def _section_text(key: str) -> str:
     title, commands = _SECTIONS[key]
     lines = [f"<b>{title}</b>\n"]
     for cmd, desc in commands:
-        # Commands with user-input args (<...>) → <code> block (tap to copy on mobile)
-        # All other commands → plain text (auto-linked by Telegram, tap to send)
-        if '<' in cmd:
+        # Commands with args (<mandatory> or [optional]) → <code> block (tap to copy on mobile)
+        # Simple /commands → plain text (auto-linked by Telegram, tap to send)
+        if '<' in cmd or '[' in cmd:
             lines.append(f"<code>{html.escape(cmd)}</code> — {desc}")
         else:
             lines.append(f"{cmd} — {desc}")
