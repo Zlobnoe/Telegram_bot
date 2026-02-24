@@ -62,6 +62,23 @@ class Repository:
                 CREATE INDEX IF NOT EXISTS idx_api_usage_user ON api_usage(user_id, type);
                 CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(user_id, created_at);
             """)
+        # migration: add user_calendars table if missing
+        cursor = await self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_calendars'"
+        )
+        if not await cursor.fetchone():
+            await self._db.executescript("""
+                CREATE TABLE user_calendars (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL REFERENCES users(id),
+                    calendar_id TEXT NOT NULL,
+                    name        TEXT NOT NULL DEFAULT 'Мой календарь',
+                    is_active   BOOLEAN DEFAULT 0,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, calendar_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_calendars_user ON user_calendars(user_id);
+            """)
         await self._db.commit()
 
     async def close(self) -> None:
@@ -468,3 +485,54 @@ class Repository:
             return row["amount"]
         settings = await self.get_finance_settings(user_id)
         return settings["weekly_budget"] if settings else 0
+
+    # ── user calendars ─────────────────────────────────────
+
+    async def add_user_calendar(self, user_id: int, calendar_id: str, name: str) -> int | None:
+        """Add a calendar for the user. Returns new row id, or None if already exists."""
+        try:
+            cursor = await self._db.execute(
+                "INSERT INTO user_calendars (user_id, calendar_id, name) VALUES (?, ?, ?)",
+                (user_id, calendar_id, name),
+            )
+            await self._db.commit()
+            return cursor.lastrowid
+        except Exception:
+            return None
+
+    async def list_user_calendars(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM user_calendars WHERE user_id = ? ORDER BY created_at",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_active_user_calendar(self, user_id: int) -> dict | None:
+        cursor = await self._db.execute(
+            "SELECT * FROM user_calendars WHERE user_id = ? AND is_active = 1 LIMIT 1",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def set_active_user_calendar(self, user_id: int, cal_id: int) -> bool:
+        cursor = await self._db.execute(
+            "SELECT id FROM user_calendars WHERE id = ? AND user_id = ?", (cal_id, user_id)
+        )
+        if not await cursor.fetchone():
+            return False
+        await self._db.execute(
+            "UPDATE user_calendars SET is_active = 0 WHERE user_id = ?", (user_id,)
+        )
+        await self._db.execute(
+            "UPDATE user_calendars SET is_active = 1 WHERE id = ?", (cal_id,)
+        )
+        await self._db.commit()
+        return True
+
+    async def delete_user_calendar(self, cal_id: int, user_id: int) -> bool:
+        cursor = await self._db.execute(
+            "DELETE FROM user_calendars WHERE id = ? AND user_id = ?", (cal_id, user_id)
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0

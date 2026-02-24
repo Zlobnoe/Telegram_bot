@@ -15,14 +15,23 @@ from aiogram.types import Message
 from openai import AsyncOpenAI
 
 from bot.config import Config
-from bot.services.gcal import GCalService
+from bot.database.repository import Repository
+from bot.services.gcal import GCalRegistry, GCalService
 from bot.services.stt import STTService
 from bot.utils import safe_reply
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-NOT_CONFIGURED = "Google Calendar не настроен. Добавьте GOOGLE_CREDENTIALS_PATH и GOOGLE_CALENDAR_ID в .env"
+NOT_CONFIGURED = (
+    "Google Calendar не настроен. Добавьте GOOGLE_CREDENTIALS_PATH в .env\n"
+    "и настройте свой календарь командой /gcal addcal <calendar_id> [Название]"
+)
+NO_ACTIVE_CALENDAR = (
+    "У вас нет активного календаря.\n"
+    "Добавьте календарь: /gcal addcal <calendar_id> [Название]\n"
+    "Список ваших календарей: /gcal calendars"
+)
 
 
 class GCalState(StatesGroup):
@@ -49,6 +58,18 @@ Rules:
 - If user says "день"/"обед" (afternoon/lunch), use 13:00
 - Reply ONLY with the JSON object, nothing else\
 """
+
+
+async def _get_user_gcal(
+    user_id: int, repo: Repository, registry: GCalRegistry | None,
+) -> GCalService | None:
+    """Return the active GCalService for the user, or None if not set up."""
+    if registry is None:
+        return None
+    cal = await repo.get_active_user_calendar(user_id)
+    if cal is None:
+        return None
+    return registry.get_service(cal["calendar_id"])
 
 
 async def _parse_natural(text: str, config: Config) -> dict | None:
@@ -108,17 +129,180 @@ def _today(tz_name: str) -> datetime:
     return _now_local(tz_name).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-@router.message(Command("gcal"))
-async def cmd_gcal(
-    message: Message, state: FSMContext, config: Config,
-    gcal: GCalService | None = None,
+# ── Calendar management subcommands ────────────────────────────────────────────
+
+async def _handle_list_calendars(
+    message: Message, repo: Repository, registry: GCalRegistry | None,
 ) -> None:
-    if gcal is None:
+    """Show all calendars for the user."""
+    cals = await repo.list_user_calendars(message.from_user.id)
+    if not cals:
+        sa_email = registry.service_account_email if registry else None
+        hint = (
+            f"\n\nEmail сервисного аккаунта для выдачи доступа:\n<code>{sa_email}</code>"
+            if sa_email else ""
+        )
+        await message.answer(
+            "У вас нет добавленных календарей.\n\n"
+            "Как добавить:\n"
+            "1. Откройте Google Календарь → Настройки → Ваш календарь → "
+            "«Предоставить доступ пользователям или группам»\n"
+            "2. Добавьте email сервисного аккаунта с правом «Редактирование»\n"
+            "3. Скопируйте ID календаря (в настройках, раздел «Интеграция календаря»)\n"
+            "4. Введите: /gcal addcal <calendar_id> [Название]"
+            + hint,
+            parse_mode="HTML",
+        )
+        return
+
+    lines = ["📅 <b>Ваши календари:</b>"]
+    for cal in cals:
+        active_mark = " ✅" if cal["is_active"] else ""
+        lines.append(
+            f"  <b>{cal['id']}.</b> {cal['name']}{active_mark}\n"
+            f"       <code>{cal['calendar_id']}</code>"
+        )
+    lines.append(
+        "\n/gcal usecal &lt;id&gt; — выбрать активный\n"
+        "/gcal delcal &lt;id&gt; — удалить"
+    )
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+async def _handle_add_calendar(
+    message: Message, repo: Repository, registry: GCalRegistry | None, args: str,
+) -> None:
+    """Add a new calendar for the user: addcal <calendar_id> [Name]."""
+    parts = args.split(maxsplit=1)
+    if not parts:
+        await message.answer(
+            "Использование: /gcal addcal <calendar_id> [Название]\n"
+            "Пример: /gcal addcal user@gmail.com Рабочий"
+        )
+        return
+
+    calendar_id = parts[0].strip()
+    name = parts[1].strip() if len(parts) > 1 else "Мой календарь"
+
+    if registry is None:
         await message.answer(NOT_CONFIGURED)
         return
 
+    # Verify we can reach the calendar before saving
+    svc = registry.get_service(calendar_id)
+    today = _today(registry._timezone if hasattr(registry, "_timezone") else "UTC")
+    try:
+        await svc.get_events(today, today + timedelta(days=1))
+    except Exception as e:
+        await message.answer(
+            f"Не удалось подключиться к календарю <code>{calendar_id}</code>.\n"
+            f"Убедитесь, что вы предоставили доступ сервисному аккаунту.\n\n"
+            f"Ошибка: {e}",
+            parse_mode="HTML",
+        )
+        return
+
+    row_id = await repo.add_user_calendar(message.from_user.id, calendar_id, name)
+    if row_id is None:
+        await message.answer(
+            f"Календарь <code>{calendar_id}</code> уже добавлен.", parse_mode="HTML"
+        )
+        return
+
+    # Activate if this is the first calendar
+    cals = await repo.list_user_calendars(message.from_user.id)
+    if len(cals) == 1:
+        await repo.set_active_user_calendar(message.from_user.id, row_id)
+        await message.answer(
+            f"✅ Календарь «{name}» добавлен и выбран как активный.",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            f"✅ Календарь «{name}» добавлен.\n"
+            f"Чтобы сделать его активным: /gcal usecal {row_id}",
+            parse_mode="HTML",
+        )
+
+
+async def _handle_use_calendar(
+    message: Message, repo: Repository, args: str,
+) -> None:
+    """Switch active calendar by id."""
+    if not args.strip().isdigit():
+        await message.answer("Использование: /gcal usecal <id>\nID можно узнать в /gcal calendars")
+        return
+
+    cal_id = int(args.strip())
+    ok = await repo.set_active_user_calendar(message.from_user.id, cal_id)
+    if ok:
+        cals = await repo.list_user_calendars(message.from_user.id)
+        name = next((c["name"] for c in cals if c["id"] == cal_id), str(cal_id))
+        await message.answer(f"✅ Активный календарь: «{name}»")
+    else:
+        await message.answer(f"Календарь с ID {cal_id} не найден.")
+
+
+async def _handle_del_calendar(
+    message: Message, repo: Repository, args: str,
+) -> None:
+    """Delete a calendar by id."""
+    if not args.strip().isdigit():
+        await message.answer("Использование: /gcal delcal <id>\nID можно узнать в /gcal calendars")
+        return
+
+    cal_id = int(args.strip())
+    ok = await repo.delete_user_calendar(cal_id, message.from_user.id)
+    if ok:
+        # If deleted was active, try to activate first remaining
+        active = await repo.get_active_user_calendar(message.from_user.id)
+        if active is None:
+            remaining = await repo.list_user_calendars(message.from_user.id)
+            if remaining:
+                await repo.set_active_user_calendar(message.from_user.id, remaining[0]["id"])
+        await message.answer(f"🗑 Календарь {cal_id} удалён.")
+    else:
+        await message.answer(f"Календарь с ID {cal_id} не найден.")
+
+
+# ── Main command handler ────────────────────────────────────────────────────────
+
+@router.message(Command("gcal"))
+async def cmd_gcal(
+    message: Message, state: FSMContext, config: Config, repo: Repository,
+    gcal_registry: GCalRegistry | None = None,
+) -> None:
     text = (message.text or "").split(maxsplit=1)
     sub = text[1].strip() if len(text) > 1 else ""
+
+    # Calendar management subcommands (no active calendar required)
+    if sub == "calendars":
+        await _handle_list_calendars(message, repo, gcal_registry)
+        return
+
+    if sub.startswith("addcal ") or sub == "addcal":
+        args = sub[len("addcal"):].strip()
+        await _handle_add_calendar(message, repo, gcal_registry, args)
+        return
+
+    if sub.startswith("usecal ") or sub == "usecal":
+        args = sub[len("usecal"):].strip()
+        await _handle_use_calendar(message, repo, args)
+        return
+
+    if sub.startswith("delcal ") or sub == "delcal":
+        args = sub[len("delcal"):].strip()
+        await _handle_del_calendar(message, repo, args)
+        return
+
+    # All other subcommands require an active calendar
+    gcal = await _get_user_gcal(message.from_user.id, repo, gcal_registry)
+    if gcal is None:
+        if gcal_registry is None:
+            await message.answer(NOT_CONFIGURED)
+        else:
+            await message.answer(NO_ACTIVE_CALENDAR)
+        return
 
     # /gcal with no args — show today + enter waiting state
     if not sub:
@@ -144,9 +328,10 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 
 @router.message(StateFilter(GCalState.waiting), F.voice)
 async def gcal_voice(
-    message: Message, state: FSMContext, config: Config,
-    gcal: GCalService | None = None, stt: STTService | None = None,
+    message: Message, state: FSMContext, config: Config, repo: Repository,
+    gcal_registry: GCalRegistry | None = None, stt: STTService | None = None,
 ) -> None:
+    gcal = await _get_user_gcal(message.from_user.id, repo, gcal_registry)
     if gcal is None or stt is None:
         await state.clear()
         return
@@ -168,9 +353,10 @@ async def gcal_voice(
 
 @router.message(StateFilter(GCalState.waiting), F.text)
 async def gcal_text(
-    message: Message, state: FSMContext, config: Config,
-    gcal: GCalService | None = None,
+    message: Message, state: FSMContext, config: Config, repo: Repository,
+    gcal_registry: GCalRegistry | None = None,
 ) -> None:
+    gcal = await _get_user_gcal(message.from_user.id, repo, gcal_registry)
     if gcal is None:
         await state.clear()
         return

@@ -87,3 +87,51 @@ def create_gcal_service(
     except Exception:
         logger.exception("Failed to init GCalService")
         return None
+
+
+class GCalRegistry:
+    """Factory/cache of GCalService instances keyed by calendar_id.
+
+    Uses a single service account credentials file for all calendars.
+    Users must share their Google Calendar with the service account email.
+    """
+
+    def __init__(self, credentials_path: str, timezone: str = "UTC") -> None:
+        self._credentials_path = credentials_path
+        self._timezone = timezone
+        self._cache: dict[str, GCalService] = {}
+
+    def get_service(self, calendar_id: str) -> GCalService:
+        if calendar_id not in self._cache:
+            self._cache[calendar_id] = GCalService(
+                self._credentials_path, calendar_id, self._timezone
+            )
+        return self._cache[calendar_id]
+
+    @property
+    def service_account_email(self) -> str | None:
+        """Return the service account email from the credentials file."""
+        try:
+            import json
+            with open(self._credentials_path) as f:
+                data = json.load(f)
+            return data.get("client_email")
+        except Exception:
+            return None
+
+
+def create_gcal_registry(
+    credentials_path: str | None, timezone: str = "UTC",
+) -> "GCalRegistry | None":
+    if not credentials_path:
+        return None
+    if not os.path.exists(credentials_path):
+        logger.warning("Google credentials file not found: %s", credentials_path)
+        return None
+    try:
+        # Validate credentials are loadable
+        service_account.Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
+        return GCalRegistry(credentials_path, timezone)
+    except Exception:
+        logger.exception("Failed to init GCalRegistry")
+        return None
