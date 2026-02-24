@@ -320,6 +320,14 @@ async def cmd_gcal(
     await _process_gcal_input(message, state, config, gcal, sub)
 
 
+@router.message(Command("gcal_calendars"))
+async def cmd_gcal_calendars(
+    message: Message, repo: Repository,
+    gcal_registry: GCalRegistry | None = None,
+) -> None:
+    await _handle_list_calendars(message, repo, gcal_registry)
+
+
 @router.message(Command("gcal_tomorrow"))
 async def cmd_gcal_tomorrow(
     message: Message, repo: Repository,

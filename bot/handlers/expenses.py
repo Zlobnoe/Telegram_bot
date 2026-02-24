@@ -271,6 +271,21 @@ async def cmd_budget(message: Message, repo: Repository) -> None:
     await message.answer(f"Текущий недельный бюджет: {_fmt(settings['weekly_budget'])} руб.")
 
 
+@router.message(Command("budget_list"))
+async def cmd_budget_list(message: Message, repo: Repository) -> None:
+    user_id = message.from_user.id
+    history = await repo.get_budget_history(user_id)
+    if not history:
+        await message.answer("История бюджета пуста.")
+        return
+    settings = await _ensure_settings(repo, user_id)
+    lines = ["<b>История бюджета:</b>"]
+    for h in history:
+        lines.append(f"  {_fmt(h['amount'])} руб. — с недели {h['week_from']} ({h['year_from']} г.)")
+    lines.append(f"\nТекущий: {_fmt(settings['weekly_budget'])} руб.")
+    await safe_reply(message, "\n".join(lines))
+
+
 # ── /newweek ─────────────────────────────────────────────
 
 @router.message(Command("newweek"))
