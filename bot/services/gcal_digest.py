@@ -106,11 +106,21 @@ class GCalDigestService:
         tz = ZoneInfo(self._config.timezone)
         today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Fetch calendar and weather in parallel
-        calendar_block, weather_block = await asyncio.gather(
+        # Fetch calendar and weather in parallel; errors in either block must not
+        # prevent the other from being sent.
+        results = await asyncio.gather(
             self._build_calendar_block(today),
             self._weather.get_forecast_text(),
+            return_exceptions=True,
         )
+
+        calendar_block = results[0] if not isinstance(results[0], BaseException) else ""
+        weather_block = results[1] if not isinstance(results[1], BaseException) else "🌡 Погода временно недоступна"
+
+        if isinstance(results[0], BaseException):
+            logger.exception("Calendar block failed: %s", results[0])
+        if isinstance(results[1], BaseException):
+            logger.exception("Weather block failed: %s", results[1])
 
         parts = ["☀️ <b>Доброе утро!</b>"]
         if calendar_block:
