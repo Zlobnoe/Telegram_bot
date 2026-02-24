@@ -58,8 +58,8 @@ _SECTIONS = {
         "📅 Календарь",
         [
             ("/gcal", "События на сегодня"),
-            ("/gcal tomorrow", "События на завтра"),
-            ("/gcal week", "События на неделю"),
+            ("/gcal_tomorrow", "События на завтра"),
+            ("/gcal_week", "События на неделю"),
             ("/gcal add <дата> <время> <текст>", "Добавить событие"),
             ("/gcal del <id>", "Удалить событие"),
         ],
@@ -124,7 +124,12 @@ def _section_text(key: str) -> str:
     title, commands = _SECTIONS[key]
     lines = [f"<b>{title}</b>\n"]
     for cmd, desc in commands:
-        lines.append(f"{html.escape(cmd)} — {desc}")
+        # Commands with user-input args (<...>) → <code> block (tap to copy on mobile)
+        # All other commands → plain text (auto-linked by Telegram, tap to send)
+        if '<' in cmd:
+            lines.append(f"<code>{html.escape(cmd)}</code> — {desc}")
+        else:
+            lines.append(f"{cmd} — {desc}")
     return "\n".join(lines)
 
 

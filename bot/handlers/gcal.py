@@ -320,6 +320,30 @@ async def cmd_gcal(
     await _process_gcal_input(message, state, config, gcal, sub)
 
 
+@router.message(Command("gcal_tomorrow"))
+async def cmd_gcal_tomorrow(
+    message: Message, repo: Repository,
+    gcal_registry: GCalRegistry | None = None,
+) -> None:
+    gcal = await _get_user_gcal(message.from_user.id, repo, gcal_registry)
+    if gcal is None:
+        await message.answer(NOT_CONFIGURED if gcal_registry is None else NO_ACTIVE_CALENDAR)
+        return
+    await _show_events(message, gcal, "tomorrow")
+
+
+@router.message(Command("gcal_week"))
+async def cmd_gcal_week(
+    message: Message, repo: Repository,
+    gcal_registry: GCalRegistry | None = None,
+) -> None:
+    gcal = await _get_user_gcal(message.from_user.id, repo, gcal_registry)
+    if gcal is None:
+        await message.answer(NOT_CONFIGURED if gcal_registry is None else NO_ACTIVE_CALENDAR)
+        return
+    await _show_events(message, gcal, "week")
+
+
 @router.message(Command("cancel"), StateFilter(GCalState.waiting))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
