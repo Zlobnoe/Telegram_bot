@@ -89,4 +89,16 @@ CREATE TABLE IF NOT EXISTS budget_history (
 CREATE INDEX IF NOT EXISTS idx_expenses_user_week    ON expenses(user_id, year, custom_week);
 CREATE INDEX IF NOT EXISTS idx_expenses_user_year    ON expenses(user_id, year);
 CREATE INDEX IF NOT EXISTS idx_budget_history_user   ON budget_history(user_id, year_from, week_from);
+
+CREATE TABLE IF NOT EXISTS user_calendars (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    calendar_id TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT 'Мой календарь',
+    is_active   BOOLEAN DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, calendar_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_calendars_user ON user_calendars(user_id);
 """

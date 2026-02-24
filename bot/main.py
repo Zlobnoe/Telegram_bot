@@ -15,7 +15,7 @@ from bot.services.stt import STTService
 from bot.services.tts import TTSService
 from bot.services.skills import SkillsService
 from bot.services.reminder import ReminderService
-from bot.services.gcal import create_gcal_service
+from bot.services.gcal import create_gcal_service, create_gcal_registry
 from bot.services.gcal_digest import GCalDigestService
 from bot.services.weather import WeatherService
 from bot.middleware.auth import AuthMiddleware
@@ -72,7 +72,8 @@ async def main() -> None:
 
     # google calendar
     gcal_service = create_gcal_service(config.google_credentials_path, config.google_calendar_id, config.timezone)
-    dp["gcal"] = gcal_service
+    gcal_registry = create_gcal_registry(config.google_credentials_path, config.timezone)
+    dp["gcal_registry"] = gcal_registry
 
     # reminder scheduler
     reminder_service = ReminderService(bot, repo)
@@ -112,7 +113,7 @@ async def main() -> None:
         BotCommand(command="translate", description="Перевести текст"),
         BotCommand(command="summarize", description="Суммаризация текста"),
         BotCommand(command="sum", description="Суммаризация по URL"),
-        BotCommand(command="gcal", description="Google Календарь"),
+        BotCommand(command="gcal", description="Google Календарь (calendars/addcal/usecal/delcal)"),
         BotCommand(command="exp", description="Добавить расход"),
         BotCommand(command="week", description="Статистика за неделю"),
         BotCommand(command="year", description="Статистика за год"),
