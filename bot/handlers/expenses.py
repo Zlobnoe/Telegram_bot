@@ -286,6 +286,28 @@ async def cmd_budget_list(message: Message, repo: Repository) -> None:
     await safe_reply(message, "\n".join(lines))
 
 
+# ── /exp_latest ──────────────────────────────────────────
+
+@router.message(Command("exp_latest"))
+async def cmd_exp_latest(message: Message, repo: Repository) -> None:
+    user_id = message.from_user.id
+    records = await repo.get_latest_expenses(user_id, limit=10)
+    if not records:
+        await message.answer("Расходов пока нет.")
+        return
+
+    lines = ["<b>Последние 10 записей:</b>\n"]
+    for r in records:
+        dt = r["created_at"]
+        if isinstance(dt, str):
+            dt = datetime.fromisoformat(dt)
+        lines.append(
+            f"<code>#{r['id']}</code> {dt.strftime('%d.%m %H:%M')} — "
+            f"<b>{_fmt(r['amount'])}</b> руб. (нед. {r['custom_week']})"
+        )
+    await safe_reply(message, "\n".join(lines))
+
+
 # ── /newweek ─────────────────────────────────────────────
 
 @router.message(Command("newweek"))
