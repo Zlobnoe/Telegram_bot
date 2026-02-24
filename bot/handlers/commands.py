@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import io
 
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from bot.config import Config
 from bot.database.repository import Repository
@@ -13,6 +13,121 @@ from bot.utils import safe_reply
 
 router = Router()
 
+# ── Inline menu structure ──────────────────────────────────
+
+_SECTIONS = {
+    "chat": (
+        "💬 Чат",
+        [
+            ("/reset", "Сбросить контекст диалога"),
+            ("/conversations", "Список и переключение диалогов"),
+            ("/history", "Последние 10 сообщений"),
+            ("/export", "Экспорт диалога в файл"),
+            ("/model", "Сменить языковую модель"),
+            ("/system", "Задать системный промпт"),
+            ("/stats", "Статистика токенов"),
+        ],
+    ),
+    "tools": (
+        "🛠 Инструменты",
+        [
+            ("/image <описание>", "Генерация изображения"),
+            ("/search <запрос>", "Поиск в интернете"),
+            ("/sum <url>", "Пересказ страницы по URL"),
+        ],
+    ),
+    "reminders": (
+        "⏰ Напоминания",
+        [
+            ("/remind <время> <текст>", "Установить напоминание"),
+            ("/reminders", "Список активных напоминаний"),
+            ("/delremind <id>", "Удалить напоминание"),
+        ],
+    ),
+    "memory": (
+        "🧠 Память",
+        [
+            ("/memory", "Что бот знает о тебе"),
+            ("/remember <факт>", "Запомнить факт вручную"),
+            ("/forget <id>", "Удалить конкретный факт"),
+            ("/forget_all", "Очистить всю память"),
+        ],
+    ),
+    "calendar": (
+        "📅 Календарь",
+        [
+            ("/gcal", "События на сегодня"),
+            ("/gcal tomorrow", "События на завтра"),
+            ("/gcal week", "События на неделю"),
+            ("/gcal add <дата> <время> <текст>", "Добавить событие"),
+            ("/gcal del <id>", "Удалить событие"),
+        ],
+    ),
+    "finances": (
+        "💰 Финансы",
+        [
+            ("/exp", "Добавить расход"),
+            ("/week [N]", "Статистика за N-ю неделю"),
+            ("/year [YYYY]", "Статистика за год"),
+            ("/budget [сумма|list]", "Недельный бюджет"),
+            ("/newweek", "Новая финансовая неделя"),
+            ("/fexport", "Экспорт расходов в CSV"),
+        ],
+    ),
+    "skills": (
+        "⚡ Скиллы",
+        [
+            ("/skills", "Список установленных скиллов"),
+            ("/calc", "Калькулятор"),
+            ("/time", "Текущее время и дата"),
+            ("/run", "Выполнить Python-код"),
+            ("/translate", "Перевести текст"),
+            ("/summarize", "Суммаризация текста"),
+        ],
+    ),
+}
+
+_MAIN_MENU_TEXT = (
+    "👋 Привет! Я твой AI-ассистент.\n\n"
+    "Выбери раздел, чтобы посмотреть доступные команды:"
+)
+
+
+def _main_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💬 Чат", callback_data="menu:chat"),
+            InlineKeyboardButton(text="🛠 Инструменты", callback_data="menu:tools"),
+        ],
+        [
+            InlineKeyboardButton(text="⏰ Напоминания", callback_data="menu:reminders"),
+            InlineKeyboardButton(text="🧠 Память", callback_data="menu:memory"),
+        ],
+        [
+            InlineKeyboardButton(text="📅 Календарь", callback_data="menu:calendar"),
+            InlineKeyboardButton(text="💰 Финансы", callback_data="menu:finances"),
+        ],
+        [
+            InlineKeyboardButton(text="⚡ Скиллы", callback_data="menu:skills"),
+        ],
+    ])
+
+
+def _back_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="menu:main")],
+    ])
+
+
+def _section_text(key: str) -> str:
+    title, commands = _SECTIONS[key]
+    lines = [f"<b>{title}</b>\n"]
+    for cmd, desc in commands:
+        lines.append(f"<code>{cmd}</code> — {desc}")
+    return "\n".join(lines)
+
+
+# ── /start ─────────────────────────────────────────────────
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, repo: Repository, config: Config) -> None:
@@ -24,72 +139,63 @@ async def cmd_start(message: Message, repo: Repository, config: Config) -> None:
         await repo.create_conversation(user.id, config.default_model)
 
     await message.answer(
-        f"Hello, {user.first_name}! I'm your AI assistant.\n\n"
-        "Send /help for the full command list.\n\n"
-        "Just send a message, a URL, or a voice message!"
+        f"Привет, {user.first_name}! Я твой AI-ассистент.\n\n"
+        "Просто напиши сообщение, отправь URL или голосовое — отвечу!\n\n"
+        "Список команд — /help",
+        reply_markup=_main_menu_kb(),
     )
 
+
+# ── /help ──────────────────────────────────────────────────
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(
-        "📋 Commands:\n\n"
-        "Chat:\n"
-        "/reset — new conversation\n"
-        "/conversations — switch dialogs\n"
-        "/history — recent messages\n"
-        "/export — export to file\n"
-        "/model — switch model\n"
-        "/system — set system prompt\n\n"
-        "Tools:\n"
-        "/image — generate image\n"
-        "/search — web search\n"
-        "/sum <url> — summarize a page\n"
-        "/stats — статистика (= /usage)\n\n"
-        "Reminders:\n"
-        "/remind — set reminder\n"
-        "/reminders — list active\n"
-        "/delremind <id> — delete\n\n"
-        "Memory:\n"
-        "/memory — what I know about you\n"
-        "/remember <fact> — save a fact\n"
-        "/forget <id> — delete fact\n"
-        "/forget_all — clear memory\n\n"
-        "Calendar:\n"
-        "/gcal — events today\n"
-        "/gcal tomorrow / week\n"
-        "/gcal add <date> <time> <text>\n"
-        "/gcal del <id>\n\n"
-        "Finances:\n"
-        "/exp — режим добавления расходов\n"
-        "/week [N] — статистика за неделю\n"
-        "/year [YYYY] — статистика за год\n"
-        "/budget [сумма|list] — бюджет\n"
-        "/newweek — новая финансовая неделя\n"
-        "/fexport — экспорт расходов CSV\n\n"
-        "Skills:\n"
-        "/skills — installed skills\n"
-        "/calc /time /run /translate /summarize\n\n"
-        "Just send a message or a URL!"
-    )
+    await message.answer(_MAIN_MENU_TEXT, reply_markup=_main_menu_kb())
 
+
+# ── menu callbacks ─────────────────────────────────────────
+
+@router.callback_query(F.data == "menu:main")
+async def cb_menu_main(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(_MAIN_MENU_TEXT, reply_markup=_main_menu_kb())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("menu:"))
+async def cb_menu_section(callback: CallbackQuery) -> None:
+    key = callback.data.split(":", 1)[1]
+    if key not in _SECTIONS:
+        await callback.answer("Неизвестный раздел", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _section_text(key),
+        reply_markup=_back_kb(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+# ── /reset ─────────────────────────────────────────────────
 
 @router.message(Command("reset"))
 async def cmd_reset(message: Message, repo: Repository, config: Config) -> None:
     await repo.create_conversation(message.from_user.id, config.default_model)
-    await message.answer("Conversation reset. Starting fresh!")
+    await message.answer("Диалог сброшен. Начинаем с чистого листа!")
 
+
+# ── /history ───────────────────────────────────────────────
 
 @router.message(Command("history"))
 async def cmd_history(message: Message, repo: Repository) -> None:
     conv = await repo.get_active_conversation(message.from_user.id)
     if conv is None:
-        await message.answer("No active conversation.")
+        await message.answer("Нет активного диалога.")
         return
 
     msgs = await repo.get_last_messages_formatted(conv["id"], limit=10)
     if not msgs:
-        await message.answer("No messages yet.")
+        await message.answer("Сообщений пока нет.")
         return
 
     lines = []
@@ -117,7 +223,7 @@ async def cmd_model(message: Message, repo: Repository, config: Config) -> None:
             await repo.create_conversation(message.from_user.id, model_name)
         else:
             await repo.update_conversation_model(conv["id"], model_name)
-        await message.answer(f"Model switched to `{model_name}`", parse_mode="Markdown")
+        await message.answer(f"Модель переключена на `{model_name}`", parse_mode="Markdown")
         return
 
     # show buttons
@@ -130,7 +236,7 @@ async def cmd_model(message: Message, repo: Repository, config: Config) -> None:
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"model:{model}")])
 
     await message.answer(
-        f"Current model: `{current}`\nSelect a model:",
+        f"Текущая модель: `{current}`\nВыберите модель:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
@@ -142,7 +248,7 @@ async def cmd_system(message: Message, repo: Repository, config: Config) -> None
     if len(parts) < 2:
         conv = await repo.get_active_conversation(message.from_user.id)
         current = conv["system_prompt"] if conv else "You are a helpful assistant."
-        await message.answer(f"Current system prompt:\n{current}\n\nUsage: /system <prompt>")
+        await message.answer(f"Текущий системный промпт:\n{current}\n\nИспользование: /system <промпт>")
         return
 
     prompt = parts[1].strip()
@@ -151,7 +257,7 @@ async def cmd_system(message: Message, repo: Repository, config: Config) -> None
         await repo.create_conversation(message.from_user.id, config.default_model, system_prompt=prompt)
     else:
         await repo.update_conversation_system_prompt(conv["id"], prompt)
-    await message.answer("System prompt updated.")
+    await message.answer("Системный промпт обновлён.")
 
 
 # ── /conversations — list & switch ────────────────────────
@@ -160,18 +266,18 @@ async def cmd_system(message: Message, repo: Repository, config: Config) -> None
 async def cmd_conversations(message: Message, repo: Repository) -> None:
     convs = await repo.get_user_conversations(message.from_user.id)
     if not convs:
-        await message.answer("No conversations yet. Send a message to start one.")
+        await message.answer("Диалогов пока нет. Отправьте сообщение, чтобы начать.")
         return
 
     buttons = []
     for c in convs:
         active = "▶ " if c["is_active"] else ""
-        title = c["title"] or f"Chat #{c['id']}"
-        label = f"{active}{title} ({c['message_count']} msgs)"
+        title = c["title"] or f"Чат #{c['id']}"
+        label = f"{active}{title} ({c['message_count']} сообщ.)"
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"conv:{c['id']}")])
 
     await message.answer(
-        "Your conversations (tap to switch):",
+        "Ваши диалоги (нажмите, чтобы переключиться):",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
@@ -182,12 +288,12 @@ async def cmd_conversations(message: Message, repo: Repository) -> None:
 async def cmd_export(message: Message, repo: Repository) -> None:
     conv = await repo.get_active_conversation(message.from_user.id)
     if conv is None:
-        await message.answer("No active conversation to export.")
+        await message.answer("Нет активного диалога для экспорта.")
         return
 
     msgs = await repo.get_all_messages_for_export(conv["id"])
     if not msgs:
-        await message.answer("No messages to export.")
+        await message.answer("Сообщений для экспорта нет.")
         return
 
     # text format
@@ -209,8 +315,8 @@ async def cmd_export(message: Message, repo: Repository) -> None:
         filename=f"conversation_{conv['id']}.json",
     )
 
-    await message.answer_document(text_file, caption=f"Conversation #{conv['id']} (text)")
-    await message.answer_document(json_file, caption=f"Conversation #{conv['id']} (JSON)")
+    await message.answer_document(text_file, caption=f"Диалог #{conv['id']} (текст)")
+    await message.answer_document(json_file, caption=f"Диалог #{conv['id']} (JSON)")
 
 
 # ── /usage, /stats ────────────────────────────────────────
