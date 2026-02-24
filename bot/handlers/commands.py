@@ -124,7 +124,7 @@ def _section_text(key: str) -> str:
     title, commands = _SECTIONS[key]
     lines = [f"<b>{title}</b>\n"]
     for cmd, desc in commands:
-        lines.append(f"<code>{html.escape(cmd)}</code> — {desc}")
+        lines.append(f"{html.escape(cmd)} — {desc}")
     return "\n".join(lines)
 
 
