@@ -426,6 +426,13 @@ class Repository:
         )
         return [dict(r) for r in await cursor.fetchall()]
 
+    async def get_latest_expenses(self, user_id: int, limit: int = 10) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM expenses WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
     async def delete_expense(self, expense_id: int, user_id: int) -> bool:
         cursor = await self._db.execute(
             "DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id)
