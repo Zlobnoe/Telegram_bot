@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import csv
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
@@ -11,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message
 
+from bot.config import Config
 from bot.database.repository import Repository
 from bot.services.charts import create_week_chart, create_year_chart
 from bot.utils import safe_reply
@@ -305,18 +307,19 @@ async def cmd_delexp(message: Message, repo: Repository) -> None:
 # ── /exp_latest ──────────────────────────────────────────
 
 @router.message(Command("exp_latest"))
-async def cmd_exp_latest(message: Message, repo: Repository) -> None:
+async def cmd_exp_latest(message: Message, repo: Repository, config: Config) -> None:
     user_id = message.from_user.id
     records = await repo.get_latest_expenses(user_id, limit=10)
     if not records:
         await message.answer("Расходов пока нет.")
         return
 
+    tz = ZoneInfo(config.timezone)
     lines = ["<b>Последние 10 записей:</b>\n"]
     for r in records:
         dt = r["created_at"]
         if isinstance(dt, str):
-            dt = datetime.fromisoformat(dt)
+            dt = datetime.fromisoformat(dt).replace(tzinfo=timezone.utc).astimezone(tz)
         lines.append(
             f"<code>#{r['id']}</code> {dt.strftime('%d.%m %H:%M')} — "
             f"<b>{_fmt(r['amount'])}</b> руб. (нед. {r['custom_week']})"

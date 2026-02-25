@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 
@@ -64,7 +64,7 @@ def parse_remind_time(text: str) -> tuple[datetime, str] | None:
     import re
 
     text = text.strip()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Russian: "через X минут/часов/дней ..."
     m = re.match(

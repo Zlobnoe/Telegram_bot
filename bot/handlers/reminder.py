@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from bot.config import Config
 from bot.database.repository import Repository
 from bot.services.reminder import parse_remind_time
 
@@ -14,7 +17,7 @@ router = Router()
 
 
 @router.message(Command("remind"))
-async def cmd_remind(message: Message, repo: Repository) -> None:
+async def cmd_remind(message: Message, repo: Repository, config: Config) -> None:
     """Set a reminder: /remind через 30 минут купить молоко"""
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -47,7 +50,7 @@ async def cmd_remind(message: Message, repo: Repository) -> None:
     )
 
     # format time nicely
-    delta = remind_at - __import__("datetime").datetime.utcnow()
+    delta = remind_at - datetime.now(timezone.utc).replace(tzinfo=None)
     total_seconds = int(delta.total_seconds())
     if total_seconds < 60:
         time_str = f"{total_seconds} сек"
@@ -61,24 +64,28 @@ async def cmd_remind(message: Message, repo: Repository) -> None:
         days = total_seconds // 86400
         time_str = f"{days} дн"
 
+    local_dt = remind_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(config.timezone))
     await message.answer(
         f"✅ Напоминание #{reminder_id} установлено!\n"
-        f"Через: {time_str}\n"
+        f"Через: {time_str} ({local_dt.strftime('%d.%m %H:%M')})\n"
         f"Текст: {reminder_text}"
     )
 
 
 @router.message(Command("reminders"))
-async def cmd_reminders(message: Message, repo: Repository) -> None:
+async def cmd_reminders(message: Message, repo: Repository, config: Config) -> None:
     """List active reminders."""
     reminders = await repo.get_user_reminders(message.from_user.id)
     if not reminders:
         await message.answer("У вас нет активных напоминаний.")
         return
 
+    tz = ZoneInfo(config.timezone)
     lines = ["Активные напоминания:\n"]
     for r in reminders:
-        lines.append(f"#{r['id']} — {r['remind_at']}\n  {r['text']}")
+        utc_dt = datetime.fromisoformat(r["remind_at"]).replace(tzinfo=timezone.utc)
+        local_dt = utc_dt.astimezone(tz)
+        lines.append(f"#{r['id']} — {local_dt.strftime('%d.%m %H:%M')}\n  {r['text']}")
 
     await message.answer("\n".join(lines))
 
