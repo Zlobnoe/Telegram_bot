@@ -1,0 +1,11 @@
+services:
+  bot-staging:
+    image: ghcr.io/zlobnoe/telegram_bot:${STAGING_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env.staging
+    volumes:
+      - bot-staging-data:/data
+      - ./credentials/google-credentials.json:/data/google-credentials.json:ro
+
+volumes:
+  bot-staging-data:
