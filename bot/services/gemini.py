@@ -63,6 +63,38 @@ class GeminiService:
                 raise  # non-rate-limit error — don't retry
         raise last_err  # all keys exhausted
 
+    async def _stream_with_rotation(self, make_stream_fn, on_chunk) -> str:
+        """Stream response with key rotation on rate-limit errors.
+
+        Retries with next key only if the error occurs before any chunks arrive.
+        Mid-stream failures are re-raised immediately (can't retry cleanly).
+        """
+        last_err = None
+        for _ in range(len(self._clients)):
+            client = self._client
+            self._rotate()
+            full_text = ""
+            last_edit = 0.0
+            try:
+                async for chunk in make_stream_fn(client):
+                    delta = chunk.text or ""
+                    full_text += delta
+                    now = asyncio.get_event_loop().time()
+                    if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
+                        await on_chunk(full_text + " ▌")
+                        last_edit = now
+                if full_text:
+                    await on_chunk(full_text)
+                return full_text
+            except Exception as e:
+                err_str = str(e)
+                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and not full_text:
+                    logger.warning("Gemini stream rate limit on key %d, rotating", self._current_idx)
+                    last_err = e
+                    continue
+                raise  # non-rate-limit error or mid-stream failure — don't retry
+        raise last_err  # all keys exhausted
+
     def set_skills_prompt(self, prompt: str) -> None:
         self._skills_prompt = prompt
 
@@ -190,29 +222,14 @@ class GeminiService:
 
         logger.info("Gemini stream request: model=%s, messages=%d, key=%d", self._config.gemini_model, len(contents), self._current_idx)
 
-        full_text = ""
-        last_edit = 0
-        client = self._client
-        self._rotate()
+        def _make_stream(client):
+            return client.aio.models.generate_content_stream(
+                model=self._config.gemini_model,
+                contents=contents,
+                config=types.GenerateContentConfig(system_instruction=system),
+            )
 
-        async for chunk in client.aio.models.generate_content_stream(
-            model=self._config.gemini_model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-            ),
-        ):
-            delta = chunk.text or ""
-            full_text += delta
-
-            now = asyncio.get_event_loop().time()
-            if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
-                await on_chunk(full_text + " ▌")
-                last_edit = now
-
-        if full_text:
-            await on_chunk(full_text)
-
+        full_text = await self._stream_with_rotation(_make_stream, on_chunk)
         tokens_est = len(full_text) // 4
         await self._repo.add_message(conv_id, "assistant", full_text, tokens_est)
         await self._repo.log_api_usage(user_id, "chat", self._config.gemini_model, tokens_est)
@@ -242,23 +259,14 @@ class GeminiService:
         logger.info("Gemini+context request: model=%s, messages=%d", self._config.gemini_model, len(contents))
 
         if on_chunk:
-            full_text = ""
-            last_edit = 0
-            client = self._client
-            self._rotate()
-            async for chunk in client.aio.models.generate_content_stream(
-                model=self._config.gemini_model,
-                contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system),
-            ):
-                delta = chunk.text or ""
-                full_text += delta
-                now = asyncio.get_event_loop().time()
-                if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
-                    await on_chunk(full_text + " ▌")
-                    last_edit = now
-            if full_text:
-                await on_chunk(full_text)
+            def _make_stream(client):
+                return client.aio.models.generate_content_stream(
+                    model=self._config.gemini_model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(system_instruction=system),
+                )
+
+            full_text = await self._stream_with_rotation(_make_stream, on_chunk)
             tokens_est = len(full_text) // 4
             await self._repo.add_message(conv_id, "assistant", full_text, tokens_est)
             await self._repo.log_api_usage(user_id, "chat", self._config.gemini_model, tokens_est)
