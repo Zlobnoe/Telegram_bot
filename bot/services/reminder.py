@@ -37,11 +37,12 @@ class ReminderService:
                 reminders = await self._repo.get_pending_reminders()
                 for r in reminders:
                     try:
+                        # mark sent first so a failed send_message doesn't cause double-delivery
+                        await self._repo.mark_reminder_sent(r["id"])
                         await self._bot.send_message(
                             r["chat_id"],
                             f"🔔 Напоминание:\n{r['text']}",
                         )
-                        await self._repo.mark_reminder_sent(r["id"])
                         logger.info("Sent reminder #%d to user %d", r["id"], r["user_id"])
                     except Exception:
                         logger.exception("Failed to send reminder #%d", r["id"])

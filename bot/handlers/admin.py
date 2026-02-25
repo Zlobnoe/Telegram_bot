@@ -12,6 +12,7 @@ from bot.database.repository import Repository
 from bot.services.llm import LLMService
 from bot.services.tts import TTSService
 from bot.middleware.auth import _pending_users
+from bot.utils import safe_edit
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -124,10 +125,7 @@ async def cb_retry(callback: CallbackQuery, llm: LLMService, config: Config) -> 
 
     from bot.handlers.chat import RETRY_KB
 
-    if len(response) <= 4096:
-        await callback.message.edit_text(response, reply_markup=RETRY_KB)
-    else:
-        await callback.message.edit_text(response[:4096], reply_markup=RETRY_KB)
+    await safe_edit(callback.message, response, reply_markup=RETRY_KB)
 
 
 # ── callback: TTS last response ──────────────────────────
@@ -204,7 +202,11 @@ async def cmd_stats(message: Message, repo: Repository, config: Config) -> None:
         await message.answer("Usage: /stats <user\\_id>", parse_mode="Markdown")
         return
 
-    target_id = int(parts[1].strip())
+    try:
+        target_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("Usage: /stats <user\\_id>", parse_mode="Markdown")
+        return
     user = await repo.get_user(target_id)
     if not user:
         await message.answer("User not found.")
@@ -259,7 +261,11 @@ async def cmd_ban(message: Message, repo: Repository, config: Config) -> None:
     if len(parts) < 2:
         await message.answer("Usage: /ban <user\\_id>", parse_mode="Markdown")
         return
-    target_id = int(parts[1].strip())
+    try:
+        target_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("Usage: /ban <user\\_id>", parse_mode="Markdown")
+        return
     await repo.set_user_approved(target_id, False)
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
@@ -274,7 +280,11 @@ async def cmd_unban(message: Message, repo: Repository, config: Config) -> None:
     if len(parts) < 2:
         await message.answer("Usage: /unban <user\\_id>", parse_mode="Markdown")
         return
-    target_id = int(parts[1].strip())
+    try:
+        target_id = int(parts[1].strip())
+    except ValueError:
+        await message.answer("Usage: /unban <user\\_id>", parse_mode="Markdown")
+        return
     await repo.set_user_approved(target_id, True)
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)

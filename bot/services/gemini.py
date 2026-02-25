@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
 from google import genai
 from google.genai import types
 
@@ -79,7 +80,7 @@ class GeminiService:
                 async for chunk in make_stream_fn(client):
                     delta = chunk.text or ""
                     full_text += delta
-                    now = asyncio.get_event_loop().time()
+                    now = asyncio.get_running_loop().time()
                     if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
                         await on_chunk(full_text + " ▌")
                         last_edit = now
@@ -142,10 +143,11 @@ class GeminiService:
 
     async def _extract_and_save_facts(self, user_id: int, user_message: str, assistant_response: str) -> None:
         try:
+            exchange = f"User said: {user_message}\nAssistant replied: {assistant_response[:500]}"
             async def _gen(client):
                 return await client.aio.models.generate_content(
                     model=self._config.gemini_model,
-                    contents=user_message,
+                    contents=exchange,
                     config=types.GenerateContentConfig(
                         system_instruction=(
                             "Extract personal facts about the user from this conversation exchange. "
@@ -373,7 +375,6 @@ class GeminiService:
         await self._repo.add_message(conv_id, "user", text, content_type="vision", image_url=image_url)
 
         # download the image
-        import httpx
         async with httpx.AsyncClient() as http:
             img_resp = await http.get(image_url)
             img_resp.raise_for_status()

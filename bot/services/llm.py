@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from typing import TYPE_CHECKING
 
@@ -131,15 +132,8 @@ class LLMService:
         return messages
 
     async def _delete_last_user_message(self, conv_id: int) -> None:
-        """Delete the last message in conversation (used for Gemini fallback cleanup)."""
-        cursor = await self._repo._db.execute(
-            "SELECT id FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1",
-            (conv_id,),
-        )
-        row = await cursor.fetchone()
-        if row:
-            await self._repo._db.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
-            await self._repo._db.commit()
+        """Delete the last user message (used for Gemini fallback cleanup)."""
+        await self._repo.delete_last_user_message(conv_id)
 
     async def chat(self, user_id: int, user_message: str) -> str:
         if self._gemini:
@@ -206,7 +200,7 @@ class LLMService:
             delta = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
             full_text += delta
 
-            now = asyncio.get_event_loop().time()
+            now = asyncio.get_running_loop().time()
             if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
                 await on_chunk(full_text + " ▌")
                 last_edit = now
@@ -265,7 +259,7 @@ class LLMService:
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
                 full_text += delta
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
                 if now - last_edit >= STREAM_EDIT_INTERVAL and full_text:
                     await on_chunk(full_text + " ▌")
                     last_edit = now
@@ -459,7 +453,6 @@ class LLMService:
                 n=1,
                 size="1024x1024",
             )
-            import base64
             await self._repo.log_api_usage(user_id, "image", model)
             return base64.b64decode(response.data[0].b64_json)
         else:
