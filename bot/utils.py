@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 import logging
 from aiogram.types import Message, InlineKeyboardMarkup
@@ -8,7 +9,13 @@ logger = logging.getLogger(__name__)
 
 
 def md_to_html(text: str) -> str:
-    """Convert common Markdown to Telegram HTML."""
+    """Convert common Markdown to Telegram HTML.
+
+    Raw HTML special chars (<, >, &) are escaped first so that LLM output
+    like "a < b" never breaks the Telegram HTML parser.
+    """
+    # escape raw HTML chars before adding our own tags
+    text = html.escape(text, quote=False)
     # code blocks ``` ... ```
     text = re.sub(r"```(\w*)\n(.*?)```", r"<pre>\2</pre>", text, flags=re.DOTALL)
     # inline code

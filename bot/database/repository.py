@@ -219,6 +219,17 @@ class Repository:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def delete_last_user_message(self, conversation_id: int) -> None:
+        """Delete the most recent user message (used for Gemini→OpenAI fallback cleanup)."""
+        cursor = await self._db.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1",
+            (conversation_id,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            await self._db.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
+            await self._db.commit()
+
     async def delete_last_exchange(self, conversation_id: int) -> bool:
         """Delete the last user+assistant message pair for retry."""
         cursor = await self._db.execute(
