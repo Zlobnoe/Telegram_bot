@@ -19,7 +19,7 @@ from bot.services.gcal import create_gcal_service, create_gcal_registry
 from bot.services.gcal_digest import GCalDigestService
 from bot.services.weather import WeatherService
 from bot.middleware.auth import AuthMiddleware
-from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses, weather
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,6 +88,7 @@ async def main() -> None:
     dp.include_router(web.router)        # /search (before skills — skills catch-all eats /-commands)
     dp.include_router(image.router)      # /image
     dp.include_router(skills.router)     # /skills + skill triggers
+    dp.include_router(weather.router)    # /weather
     dp.include_router(summarize.router)  # URL auto-summarize
     dp.include_router(voice.router)      # voice messages
     dp.include_router(vision.router)     # photo messages
@@ -121,11 +122,15 @@ async def main() -> None:
         BotCommand(command="newweek", description="Новая финансовая неделя"),
         BotCommand(command="fexport", description="Экспорт расходов CSV"),
         BotCommand(command="stats", description="Статистика использования"),
+        BotCommand(command="weather", description="Прогноз погоды"),
+        BotCommand(command="exp_latest", description="Последние расходы"),
+        BotCommand(command="delexp", description="Удалить расход"),
     ])
 
     # weather + daily digest (always runs, gcal is optional)
-    weather = WeatherService(config.weather_lat, config.weather_lon, config.weather_city, config.timezone)
-    gcal_digest = GCalDigestService(bot, config, gcal_service, weather)
+    weather_service = WeatherService(config.weather_lat, config.weather_lon, config.weather_city, config.timezone)
+    dp["weather"] = weather_service
+    gcal_digest = GCalDigestService(bot, config, gcal_service, weather_service)
     gcal_digest.start()
 
     reminder_service.start()

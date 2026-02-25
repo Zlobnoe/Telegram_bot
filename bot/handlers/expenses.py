@@ -286,6 +286,22 @@ async def cmd_budget_list(message: Message, repo: Repository) -> None:
     await safe_reply(message, "\n".join(lines))
 
 
+# ── /delexp <id> ─────────────────────────────────────────
+
+@router.message(Command("delexp"))
+async def cmd_delexp(message: Message, repo: Repository) -> None:
+    parts = message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await message.answer("Использование: /delexp <id>\nID можно узнать через /exp_latest")
+        return
+    expense_id = int(parts[1])
+    deleted = await repo.delete_expense(expense_id, message.from_user.id)
+    if deleted:
+        await message.answer(f"Запись #{expense_id} удалена.")
+    else:
+        await message.answer(f"Запись #{expense_id} не найдена или принадлежит другому пользователю.")
+
+
 # ── /exp_latest ──────────────────────────────────────────
 
 @router.message(Command("exp_latest"))
