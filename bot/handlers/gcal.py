@@ -535,42 +535,48 @@ async def _create_event(
 
 
 async def _handle_bulk_add(message: Message, gcal: GCalService, args_list: list[str]) -> None:
-    """Add multiple events sequentially with retries, send a summary report."""
+    """Add events one by one (sequential) to avoid Google API SSL/timeout errors."""
     import asyncio
 
-    status = await message.answer(f"⏳ Добавляю {len(args_list)} событий...")
+    status = await message.answer(f"⏳ Добавляю {len(args_list)} событий по одному...")
 
     _re = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:-(\d{2}:\d{2}))?\s+(.+)")
-    sem = asyncio.Semaphore(3)  # max 3 concurrent Google API calls
 
-    async def _add_one(args: str) -> tuple[str, bool, str]:
+    ok: list[tuple[str, str]] = []
+    fail: list[tuple[str, str]] = []
+
+    for i, args in enumerate(args_list):
         m = _re.match(args)
         if not m:
-            return args, False, "неверный формат"
+            fail.append((args, "неверный формат"))
+            continue
+
         date_str, start_time, end_time, summary = m.groups()
         try:
             start = datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M")
         except ValueError:
-            return args, False, "ошибка даты"
+            fail.append((args, "ошибка даты"))
+            continue
+
         end = (
             datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M")
             if end_time else start + timedelta(hours=1)
         )
-        async with sem:
-            for attempt in range(3):
-                try:
-                    await gcal.create_event(summary, start, end)
-                    return summary, True, start.strftime("%Y-%m-%d %H:%M")
-                except Exception as e:
-                    if attempt < 2:
-                        await asyncio.sleep(2 ** attempt)  # 1s, 2s backoff
-                    else:
-                        return summary, False, str(e)
 
-    results = await asyncio.gather(*[_add_one(a) for a in args_list])
+        for attempt in range(3):
+            try:
+                await gcal.create_event(summary, start, end)
+                ok.append((summary, start.strftime("%Y-%m-%d %H:%M")))
+                break
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                else:
+                    fail.append((summary, str(e)[:80]))
 
-    ok = [(name, ts) for name, success, ts in results if success]
-    fail = [(name, err) for name, success, err in results if not success]
+        # Small pause between requests to avoid overwhelming the API
+        if i < len(args_list) - 1:
+            await asyncio.sleep(0.5)
 
     lines = [f"<b>Добавлено {len(ok)}/{len(args_list)} событий:</b>\n"]
     for name, ts in ok:
