@@ -6,6 +6,7 @@ services:
     volumes:
       - bot-data:/data
       - ./credentials/google-credentials.json:/data/google-credentials.json:ro
+      - ./keys:/data/keys:ro
 
 volumes:
   bot-data:

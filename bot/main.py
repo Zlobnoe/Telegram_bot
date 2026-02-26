@@ -18,8 +18,9 @@ from bot.services.reminder import ReminderService
 from bot.services.gcal import create_gcal_service, create_gcal_registry
 from bot.services.gcal_digest import GCalDigestService
 from bot.services.weather import WeatherService
+from bot.services.vps_monitor import VpsMonitorService
 from bot.middleware.auth import AuthMiddleware
-from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses, weather, news
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses, weather, news, vps as vps_handler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,6 +82,7 @@ async def main() -> None:
 
     # register routers (order matters)
     dp.include_router(admin.router)      # callbacks + admin commands
+    dp.include_router(vps_handler.router)  # /vps — server monitoring
     dp.include_router(expenses.router)   # /exp, /week, /year, /budget, /newweek, /fexport
     dp.include_router(commands.router)   # /start, /reset, etc.
     dp.include_router(gcal.router)       # /gcal
@@ -132,6 +134,7 @@ async def main() -> None:
         BotCommand(command="news_add", description="Добавить RSS-источник"),
         BotCommand(command="news_sources", description="Список RSS-источников"),
         BotCommand(command="news_remove", description="Удалить RSS-источник"),
+        BotCommand(command="vps", description="Мониторинг серверов"),
     ])
 
     # weather + daily digest (always runs, gcal is optional)
@@ -142,11 +145,20 @@ async def main() -> None:
 
     reminder_service.start()
 
+    # VPS monitoring (starts only if asyncssh is available)
+    vps_monitor = VpsMonitorService(bot, repo, config)
+    try:
+        import asyncssh  # noqa: F401
+        vps_monitor.start()
+    except ImportError:
+        logger.warning("asyncssh not installed — VPS monitoring disabled")
+
     try:
         await dp.start_polling(bot)
     finally:
         await gcal_digest.stop()
         await reminder_service.stop()
+        await vps_monitor.stop()
         await repo.close()
         await bot.session.close()
 
