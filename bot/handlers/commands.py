@@ -91,6 +91,16 @@ _SECTIONS = {
             ("/summarize", "Суммаризация текста"),
         ],
     ),
+    "vps": (
+        "🖥 VPS-мониторинг",
+        [
+            ("/vps", "Сводка по всем серверам"),
+            ("/vps <alias>", "Детальный статус + график 24ч"),
+            ("/vps add <alias> <host> <user> [port]", "Добавить сервер"),
+            ("/vps remove <alias>", "Удалить сервер"),
+            ("/vps exec <alias> <команда>", "Выполнить команду по SSH"),
+        ],
+    ),
 }
 
 _MAIN_MENU_TEXT = (
@@ -115,6 +125,7 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="⚡ Скиллы", callback_data="menu:skills"),
+            InlineKeyboardButton(text="🖥 VPS", callback_data="menu:vps"),
         ],
     ])
 
