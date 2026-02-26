@@ -118,16 +118,10 @@ class LLMService:
             total_chars += len(msg["content"])
             if total_chars > max_chars:
                 break
-            # handle vision messages
-            if msg.get("content_type") == "vision" and msg.get("image_url"):
-                content = [
-                    {"type": "text", "text": msg["content"]} if msg["content"] else None,
-                    {"type": "image_url", "image_url": {"url": msg["image_url"]}},
-                ]
-                content = [c for c in content if c is not None]
-                messages.insert(1, {"role": msg["role"], "content": content})
-            else:
-                messages.insert(1, {"role": msg["role"], "content": msg["content"]})
+            # Vision messages from history: include only the text caption.
+            # Never re-send the image URL — Telegram URLs expire quickly and
+            # cause BadRequestError: invalid_image_url on subsequent calls.
+            messages.insert(1, {"role": msg["role"], "content": msg["content"]})
 
         return messages
 
@@ -395,12 +389,36 @@ class LLMService:
         return await self._chat_vision_openai(user_id, image_url, caption)
 
     async def _chat_vision_openai(self, user_id: int, image_url: str, caption: str = "") -> str:
+        import base64
+        import httpx
+
         conv_id, conv = await self._ensure_conversation(user_id)
         text = caption or "What do you see in this image?"
-        await self._repo.add_message(conv_id, "user", text, content_type="vision", image_url=image_url)
+        # Store only the caption text — Telegram URLs expire and break future calls
+        await self._repo.add_message(conv_id, "user", text, content_type="vision")
+
+        # Download image and send as base64 so OpenAI can access it
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(image_url, timeout=15)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            if "octet-stream" in content_type:
+                url_lower = image_url.lower()
+                content_type = "image/png" if ".png" in url_lower else "image/jpeg"
+            b64 = base64.b64encode(resp.content).decode()
+            data_url = f"data:{content_type};base64,{b64}"
 
         history = await self._repo.get_messages(conv_id, self._config.max_context_messages)
         messages = self._build_messages(conv, history)
+        # Replace the last user message with the image content block
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                messages[i]["content"] = [
+                    {"type": "text", "text": text},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ]
+                break
+
         model = conv["model"]
         logger.info("Vision request: model=%s", model)
 
