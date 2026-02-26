@@ -26,5 +26,4 @@ class STTService:
                 file=f,
             )
 
-        Path(ogg_path).unlink(missing_ok=True)
         return transcript.text

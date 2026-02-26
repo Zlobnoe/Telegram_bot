@@ -43,7 +43,8 @@ async def handle_voice(message: Message, llm: LLMService, stt: STTService, repo:
         await typing.edit_text("Failed to process voice message.")
         return
     finally:
-        os.unlink(ogg_path)
+        from pathlib import Path
+        Path(ogg_path).unlink(missing_ok=True)
 
     safe_text = html.escape(text)
     full = f"🎤 <i>{safe_text}</i>\n\n{md_to_html(response)}"
