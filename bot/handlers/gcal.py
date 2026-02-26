@@ -321,12 +321,16 @@ async def cmd_gcal(
     add_lines = []
     for line in lines:
         line = line.strip()
-        # strip leading "/gcal " or "/gcal add " prefixes if present
-        if line.lower().startswith("/gcal add "):
-            line = line[len("/gcal add "):]
-        elif line.lower().startswith("/gcal "):
-            line = line[len("/gcal "):]
-        if line.startswith("add "):
+        if not line:
+            continue
+        ll = line.lower()
+        if ll.startswith("/gcal add "):
+            add_lines.append(line[len("/gcal add "):].strip())
+        elif ll.startswith("/gcal "):
+            rest = line[len("/gcal "):].strip()
+            if rest.lower().startswith("add "):
+                add_lines.append(rest[4:].strip())
+        elif ll.startswith("add "):
             add_lines.append(line[4:].strip())
     if len(add_lines) > 1:
         await _handle_bulk_add(message, gcal, add_lines)
