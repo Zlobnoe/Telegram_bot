@@ -11,9 +11,6 @@ from bot.database.repository import Repository
 
 logger = logging.getLogger(__name__)
 
-# track pending requests so we don't spam admin
-_pending_users: set[int] = set()
-
 
 class AuthMiddleware(BaseMiddleware):
     def __init__(self, config: Config) -> None:
@@ -39,12 +36,12 @@ class AuthMiddleware(BaseMiddleware):
         if await repo.is_user_approved(user_id):
             return await handler(event, data)
 
-        # user not approved — save them and notify admin
+        # user not approved — save them and notify admin (once, persisted in DB)
         user = event.from_user
         await repo.upsert_user(user.id, user.username, user.first_name)
 
-        if self._admin_id and user_id not in _pending_users:
-            _pending_users.add(user_id)
+        if self._admin_id and not await repo.is_user_pending(user_id):
+            await repo.set_user_pending(user_id)
             bot: Bot = event.bot
             username = f"@{user.username}" if user.username else "no username"
             await bot.send_message(

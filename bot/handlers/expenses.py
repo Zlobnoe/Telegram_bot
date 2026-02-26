@@ -90,8 +90,7 @@ async def cmd_cancel_exp(message: Message, state: FSMContext) -> None:
 async def handle_expense_input(message: Message, repo: Repository, state: FSMContext) -> None:
     amount = _parse_amount(message.text)
     if amount is None:
-        await state.clear()
-        await message.answer("Режим расходов отключён (получен не числовой ввод).")
+        await message.answer("Это не число. Введите сумму расхода или /cancel для выхода.")
         return
 
     user_id = message.from_user.id

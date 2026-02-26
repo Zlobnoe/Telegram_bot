@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.database.repository import Repository
 
@@ -62,6 +62,30 @@ async def cmd_forget(message: Message, repo: Repository) -> None:
 
 @router.message(Command("forget_all"))
 async def cmd_forget_all(message: Message, repo: Repository) -> None:
-    """Clear all memory about user."""
-    count = await repo.clear_user_memory(message.from_user.id)
-    await message.answer(f"Удалено {count} фактов. Память очищена.")
+    """Ask for confirmation before clearing all memory."""
+    facts = await repo.get_user_facts(message.from_user.id)
+    if not facts:
+        await message.answer("Нечего удалять — память уже пуста.")
+        return
+
+    await message.answer(
+        f"Удалить все <b>{len(facts)}</b> фактов? Это действие необратимо.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🗑 Да, удалить всё", callback_data="forget_all_confirm"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="forget_all_cancel"),
+        ]]),
+    )
+
+
+@router.callback_query(F.data == "forget_all_confirm")
+async def cb_forget_all_confirm(callback: CallbackQuery, repo: Repository) -> None:
+    count = await repo.clear_user_memory(callback.from_user.id)
+    await callback.message.edit_text(f"🗑 Удалено {count} фактов. Память очищена.")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "forget_all_cancel")
+async def cb_forget_all_cancel(callback: CallbackQuery) -> None:
+    await callback.message.edit_text("Отменено. Память не изменена.")
+    await callback.answer()
