@@ -107,6 +107,39 @@ class Repository:
                 CREATE INDEX IF NOT EXISTS idx_news_sources_user ON news_sources(user_id);
                 CREATE INDEX IF NOT EXISTS idx_news_items_user   ON news_items(user_id, shown_at);
             """)
+        # migration: add vps tables if missing
+        cursor = await self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vps_servers'"
+        )
+        if not await cursor.fetchone():
+            await self._db.executescript("""
+                CREATE TABLE vps_servers (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    alias    TEXT NOT NULL UNIQUE,
+                    host     TEXT NOT NULL,
+                    port     INTEGER NOT NULL DEFAULT 22,
+                    user     TEXT NOT NULL,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE vps_metrics (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    server_id      INTEGER NOT NULL REFERENCES vps_servers(id) ON DELETE CASCADE,
+                    cpu_pct        REAL,
+                    mem_pct        REAL,
+                    mem_used_mb    INTEGER,
+                    mem_total_mb   INTEGER,
+                    disk_pct       REAL,
+                    disk_used_gb   REAL,
+                    disk_total_gb  REAL,
+                    uptime_sec     INTEGER,
+                    load_1         REAL,
+                    load_5         REAL,
+                    load_15        REAL,
+                    containers_json TEXT,
+                    recorded_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_vps_metrics ON vps_metrics(server_id, recorded_at);
+            """)
         await self._db.commit()
 
     async def close(self) -> None:
@@ -657,3 +690,79 @@ class Repository:
             (user_id,),
         )
         return {r["url"] for r in await cursor.fetchall()}
+
+    # ── vps servers ────────────────────────────────────────
+
+    async def add_vps_server(self, alias: str, host: str, port: int, user: str) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO vps_servers (alias, host, port, user) VALUES (?, ?, ?, ?)",
+            (alias, host, port, user),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_vps_servers(self) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM vps_servers ORDER BY added_at"
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_vps_server_by_alias(self, alias: str) -> dict | None:
+        cursor = await self._db.execute(
+            "SELECT * FROM vps_servers WHERE alias = ?", (alias,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def delete_vps_server(self, alias: str) -> bool:
+        cursor = await self._db.execute(
+            "DELETE FROM vps_servers WHERE alias = ?", (alias,)
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    # ── vps metrics ────────────────────────────────────────
+
+    async def add_vps_metric(self, server_id: int, **metrics) -> None:
+        await self._db.execute(
+            """INSERT INTO vps_metrics
+               (server_id, cpu_pct, mem_pct, mem_used_mb, mem_total_mb,
+                disk_pct, disk_used_gb, disk_total_gb, uptime_sec,
+                load_1, load_5, load_15, containers_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                server_id,
+                metrics.get("cpu_pct"),
+                metrics.get("mem_pct"),
+                metrics.get("mem_used_mb"),
+                metrics.get("mem_total_mb"),
+                metrics.get("disk_pct"),
+                metrics.get("disk_used_gb"),
+                metrics.get("disk_total_gb"),
+                metrics.get("uptime_sec"),
+                metrics.get("load_1"),
+                metrics.get("load_5"),
+                metrics.get("load_15"),
+                metrics.get("containers_json"),
+            ),
+        )
+        await self._db.commit()
+
+    async def get_vps_metrics(self, server_id: int, hours: int = 24) -> list[dict]:
+        cursor = await self._db.execute(
+            """SELECT * FROM vps_metrics
+               WHERE server_id = ?
+                 AND recorded_at >= datetime('now', ? || ' hours')
+               ORDER BY recorded_at""",
+            (server_id, f"-{hours}"),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_vps_latest_metric(self, server_id: int) -> dict | None:
+        cursor = await self._db.execute(
+            """SELECT * FROM vps_metrics WHERE server_id = ?
+               ORDER BY recorded_at DESC LIMIT 1""",
+            (server_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None

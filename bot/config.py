@@ -29,6 +29,11 @@ class Config:
     weather_lat: float
     weather_lon: float
     weather_city: str
+    vps_ssh_key_path: str
+    vps_cpu_threshold: float
+    vps_disk_threshold: float
+    vps_mem_threshold: float
+    vps_poll_interval: int
 
     @classmethod
     def from_env(cls) -> Config:
@@ -69,4 +74,9 @@ class Config:
             weather_lat=float(os.getenv("WEATHER_LAT", "55.1540")),
             weather_lon=float(os.getenv("WEATHER_LON", "61.4291")),
             weather_city=os.getenv("WEATHER_CITY", "Челябинск"),
+            vps_ssh_key_path=os.getenv("VPS_SSH_KEY_PATH", "/data/keys/monitor_id_ed25519"),
+            vps_cpu_threshold=float(os.getenv("VPS_CPU_THRESHOLD", "85.0")),
+            vps_disk_threshold=float(os.getenv("VPS_DISK_THRESHOLD", "90.0")),
+            vps_mem_threshold=float(os.getenv("VPS_MEM_THRESHOLD", "90.0")),
+            vps_poll_interval=int(os.getenv("VPS_POLL_INTERVAL", "300")),
         )

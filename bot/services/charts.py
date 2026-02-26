@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
+from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")
@@ -154,6 +155,56 @@ def create_year_chart(records: list[dict], year: int, budget: float) -> BytesIO:
     ax2.set_ylabel("Руб.")
     ax2.grid(axis="y", alpha=0.15)
     ax2.legend(loc="upper left", fontsize=9)
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+# ── VPS chart ────────────────────────────────────────────
+
+def create_vps_chart(metrics: list[dict[str, Any]], alias: str,
+                     cpu_threshold: float = 85.0,
+                     mem_threshold: float = 90.0,
+                     disk_threshold: float = 90.0) -> BytesIO:
+    """Three subplots: CPU / RAM / Disk over the last 24h."""
+    _apply_style()
+
+    times: list[datetime] = []
+    cpu_vals: list[float] = []
+    mem_vals: list[float] = []
+    disk_vals: list[float] = []
+
+    for m in metrics:
+        ts = m.get("recorded_at")
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts)
+        times.append(ts)
+        cpu_vals.append(m.get("cpu_pct") or 0.0)
+        mem_vals.append(m.get("mem_pct") or 0.0)
+        disk_vals.append(m.get("disk_pct") or 0.0)
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 9), gridspec_kw={"hspace": 0.45})
+    fig.suptitle(f"VPS: {alias} — последние 24ч", fontsize=14, color=TEXT_CLR, y=0.98)
+
+    labels = ("CPU %", "RAM %", "Disk %")
+    data = (cpu_vals, mem_vals, disk_vals)
+    thresholds = (cpu_threshold, mem_threshold, disk_threshold)
+    colors_line = (GREEN, TEAL, YELLOW)
+
+    for ax, label, vals, threshold, clr in zip(axes, labels, data, thresholds, colors_line):
+        if times:
+            ax.plot(times, vals, color=clr, linewidth=1.8, marker=".", markersize=3)
+            ax.fill_between(times, vals, alpha=0.15, color=clr)
+        ax.axhline(threshold, color=RED, linestyle="--", linewidth=1.2,
+                   label=f"Порог {threshold:.0f}%")
+        ax.set_ylim(0, 105)
+        ax.set_ylabel(label, fontsize=9)
+        ax.legend(loc="upper right", fontsize=8)
+        ax.grid(axis="y", alpha=0.12)
+        ax.tick_params(axis="x", rotation=30, labelsize=7)
 
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")

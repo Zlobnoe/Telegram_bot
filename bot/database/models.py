@@ -123,4 +123,32 @@ CREATE TABLE IF NOT EXISTS news_items (
 
 CREATE INDEX IF NOT EXISTS idx_news_sources_user ON news_sources(user_id);
 CREATE INDEX IF NOT EXISTS idx_news_items_user   ON news_items(user_id, shown_at);
+
+CREATE TABLE IF NOT EXISTS vps_servers (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias    TEXT NOT NULL UNIQUE,
+    host     TEXT NOT NULL,
+    port     INTEGER NOT NULL DEFAULT 22,
+    user     TEXT NOT NULL,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS vps_metrics (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id      INTEGER NOT NULL REFERENCES vps_servers(id) ON DELETE CASCADE,
+    cpu_pct        REAL,
+    mem_pct        REAL,
+    mem_used_mb    INTEGER,
+    mem_total_mb   INTEGER,
+    disk_pct       REAL,
+    disk_used_gb   REAL,
+    disk_total_gb  REAL,
+    uptime_sec     INTEGER,
+    load_1         REAL,
+    load_5         REAL,
+    load_15        REAL,
+    containers_json TEXT,
+    recorded_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_vps_metrics ON vps_metrics(server_id, recorded_at);
 """
