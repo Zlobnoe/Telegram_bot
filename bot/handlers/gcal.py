@@ -18,7 +18,6 @@ from bot.config import Config
 from bot.database.repository import Repository
 from bot.services.gcal import GCalRegistry, GCalService
 from bot.services.stt import STTService
-from bot.utils import safe_reply
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -492,7 +491,7 @@ async def _show_events(message: Message, gcal: GCalService, period: str) -> None
         logger.exception("Failed to get events")
         await message.answer(f"Ошибка при получении событий: {e}")
         return
-    await safe_reply(message, _format_events(events, title))
+    await message.answer(_format_events(events, title), parse_mode="HTML")
 
 
 async def _create_event(
@@ -505,12 +504,12 @@ async def _create_event(
         await message.answer(f"Ошибка при создании события: {e}")
         return
     eid = event.get("id", "")[:8]
-    await safe_reply(
-        message,
+    await message.answer(
         f"✅ Событие создано!\n"
         f"  {start.strftime('%Y-%m-%d %H:%M')} — {end.strftime('%H:%M')}\n"
         f"  {summary}\n"
         f"  ID: <code>{eid}</code>",
+        parse_mode="HTML",
     )
 
 
