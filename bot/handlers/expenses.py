@@ -381,7 +381,7 @@ async def cmd_stats_finance(message: Message, repo: Repository) -> None:
     best_week = min(weekly.items(), key=lambda x: x[1]) if weekly else None
     worst_week = max(weekly.items(), key=lambda x: x[1]) if weekly else None
 
-    lines = [f"📊 <b>Финансовый дашборд</b>\n"]
+    lines = [f"📊 **Финансовый дашборд**\n"]
     lines.append(f"Неделя {current_week}, {current_year} год\n")
 
     if budget > 0:
