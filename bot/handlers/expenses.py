@@ -66,7 +66,7 @@ async def cmd_exp(message: Message, state: FSMContext, repo: Repository) -> None
     total = sum(r["amount"] for r in records)
 
     lines = [
-        f"<b>Режим добавления расходов</b>",
+        f"**Режим добавления расходов**",
         f"Неделя {week}, {year} год",
         f"Записей: {len(records)}, потрачено: {_fmt(total)} руб.",
     ]
@@ -110,7 +110,7 @@ async def handle_expense_input(message: Message, repo: Repository, state: FSMCon
         remaining = budget - total
         lines.append(f"Итого: {_fmt(total)} / {_fmt(budget)} — осталось {_fmt(remaining)} руб.")
         if remaining < 0:
-            lines.append("\n<b>Бюджет превышен!</b>")
+            lines.append("\n**Бюджет превышен!**")
         elif remaining < budget * 0.2:
             lines.append("\nОсталось менее 20% бюджета!")
 
@@ -152,7 +152,7 @@ async def cmd_week(message: Message, repo: Repository) -> None:
     budget = await repo.get_budget_for_week(user_id, week, year)
 
     lines = [
-        f"<b>Неделя {week}</b> ({year} г.)",
+        f"**Неделя {week}** ({year} г.)",
         f"Записей: {len(records)}",
         f"Итого: {_fmt(total)} руб.",
     ]
@@ -214,7 +214,7 @@ async def cmd_year(message: Message, repo: Repository) -> None:
     avg_month = total / len(monthly) if monthly else 0
 
     lines = [
-        f"<b>Статистика за {year} год</b>",
+        f"**Статистика за {year} год**",
         f"Записей: {len(records)}",
         f"Итого: {_fmt(total)} руб.",
         f"Недель: {len(weekly)}, в среднем: {_fmt(avg_week)} руб./нед.",
@@ -242,7 +242,7 @@ async def cmd_budget(message: Message, repo: Repository) -> None:
         if not history:
             await message.answer("История бюджета пуста.")
             return
-        lines = ["<b>История бюджета:</b>"]
+        lines = ["**История бюджета:**"]
         for h in history:
             lines.append(f"  {_fmt(h['amount'])} руб. — с недели {h['week_from']} ({h['year_from']} г.)")
         lines.append(f"\nТекущий: {_fmt(settings['weekly_budget'])} руб.")
@@ -280,7 +280,7 @@ async def cmd_budget_list(message: Message, repo: Repository) -> None:
         await message.answer("История бюджета пуста.")
         return
     settings = await _ensure_settings(repo, user_id)
-    lines = ["<b>История бюджета:</b>"]
+    lines = ["**История бюджета:**"]
     for h in history:
         lines.append(f"  {_fmt(h['amount'])} руб. — с недели {h['week_from']} ({h['year_from']} г.)")
     lines.append(f"\nТекущий: {_fmt(settings['weekly_budget'])} руб.")
@@ -314,14 +314,14 @@ async def cmd_exp_latest(message: Message, repo: Repository, config: Config) -> 
         return
 
     tz = ZoneInfo(config.timezone)
-    lines = ["<b>Последние 10 записей:</b>\n"]
+    lines = ["**Последние 10 записей:**\n"]
     for r in records:
         dt = r["created_at"]
         if isinstance(dt, str):
             dt = datetime.fromisoformat(dt).replace(tzinfo=timezone.utc).astimezone(tz)
         lines.append(
-            f"<code>#{r['id']}</code> {dt.strftime('%d.%m %H:%M')} — "
-            f"<b>{_fmt(r['amount'])}</b> руб. (нед. {r['custom_week']})"
+            f"`#{r['id']}` {dt.strftime('%d.%m %H:%M')} — "
+            f"**{_fmt(r['amount'])}** руб. (нед. {r['custom_week']})"
         )
     await safe_reply(message, "\n".join(lines))
 
