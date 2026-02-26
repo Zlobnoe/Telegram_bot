@@ -315,6 +315,23 @@ async def cmd_gcal(
         )
         return
 
+    # Bulk add: multiple lines each starting with "add <date> <time> <summary>"
+    # Supports both "add ..." and "/gcal add ..." per line (user may paste raw commands)
+    lines = sub.splitlines()
+    add_lines = []
+    for line in lines:
+        line = line.strip()
+        # strip leading "/gcal " or "/gcal add " prefixes if present
+        if line.lower().startswith("/gcal add "):
+            line = line[len("/gcal add "):]
+        elif line.lower().startswith("/gcal "):
+            line = line[len("/gcal "):]
+        if line.startswith("add "):
+            add_lines.append(line[4:].strip())
+    if len(add_lines) > 1:
+        await _handle_bulk_add(message, gcal, add_lines)
+        return
+
     # Direct subcommands (no FSM needed)
     await _process_gcal_input(message, state, config, gcal, sub)
 
@@ -511,6 +528,49 @@ async def _create_event(
         f"  ID: <code>{eid}</code>",
         parse_mode="HTML",
     )
+
+
+async def _handle_bulk_add(message: Message, gcal: GCalService, args_list: list[str]) -> None:
+    """Add multiple events in parallel, send a summary report."""
+    import asyncio
+
+    status = await message.answer(f"⏳ Добавляю {len(args_list)} событий...")
+
+    _re = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:-(\d{2}:\d{2}))?\s+(.+)")
+
+    async def _add_one(args: str) -> tuple[str, bool, str]:
+        m = _re.match(args)
+        if not m:
+            return args, False, "неверный формат"
+        date_str, start_time, end_time, summary = m.groups()
+        try:
+            start = datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            return args, False, "ошибка даты"
+        end = (
+            datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M")
+            if end_time else start + timedelta(hours=1)
+        )
+        try:
+            await gcal.create_event(summary, start, end)
+            return summary, True, start.strftime("%Y-%m-%d %H:%M")
+        except Exception as e:
+            return summary, False, str(e)
+
+    results = await asyncio.gather(*[_add_one(a) for a in args_list])
+
+    ok = [(name, ts) for name, success, ts in results if success]
+    fail = [(name, err) for name, success, err in results if not success]
+
+    lines = [f"<b>Добавлено {len(ok)}/{len(args_list)} событий:</b>\n"]
+    for name, ts in ok:
+        lines.append(f"  ✅ {ts} — {name}")
+    if fail:
+        lines.append("")
+        for name, err in fail:
+            lines.append(f"  ❌ {name}: {err}")
+
+    await status.edit_text("\n".join(lines), parse_mode="HTML")
 
 
 async def _handle_add(message: Message, gcal: GCalService, args: str) -> None:
