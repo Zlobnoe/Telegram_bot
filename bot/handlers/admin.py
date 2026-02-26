@@ -11,7 +11,6 @@ from bot.config import Config
 from bot.database.repository import Repository
 from bot.services.llm import LLMService
 from bot.services.tts import TTSService
-from bot.middleware.auth import _pending_users
 from bot.utils import safe_edit
 
 logger = logging.getLogger(__name__)
@@ -32,14 +31,12 @@ async def cb_approve(callback: CallbackQuery, repo: Repository, config: Config) 
 
     target_id = int(callback.data.split(":")[1])
     await repo.set_user_approved(target_id, True)
-    _pending_users.discard(target_id)
 
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
 
     await callback.message.edit_text(
-        callback.message.text + f"\n\n✅ **Approved** by admin",
-        parse_mode="Markdown",
+        callback.message.text + "\n\n✅ Approved by admin",
     )
     await callback.answer(f"{name} approved")
 
@@ -56,14 +53,12 @@ async def cb_deny(callback: CallbackQuery, repo: Repository, config: Config) -> 
         return
 
     target_id = int(callback.data.split(":")[1])
-    _pending_users.discard(target_id)
 
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
 
     await callback.message.edit_text(
-        callback.message.text + f"\n\n❌ **Denied** by admin",
-        parse_mode="Markdown",
+        callback.message.text + "\n\n❌ Denied by admin",
     )
     await callback.answer(f"{name} denied")
 
