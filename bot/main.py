@@ -123,6 +123,7 @@ async def main() -> None:
         BotCommand(command="budget", description="Недельный бюджет"),
         BotCommand(command="newweek", description="Новая финансовая неделя"),
         BotCommand(command="fexport", description="Экспорт расходов CSV"),
+        BotCommand(command="stats_finance", description="Финансовый дашборд"),
         BotCommand(command="stats", description="Статистика использования"),
         BotCommand(command="weather", description="Прогноз погоды"),
         BotCommand(command="exp_latest", description="Последние расходы"),

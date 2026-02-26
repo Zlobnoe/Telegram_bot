@@ -346,6 +346,76 @@ async def cmd_newweek(message: Message, repo: Repository) -> None:
     await message.answer(text)
 
 
+# ── /stats_finance ───────────────────────────────────────
+
+@router.message(Command("stats_finance"))
+async def cmd_stats_finance(message: Message, repo: Repository) -> None:
+    user_id = message.from_user.id
+    settings = await _ensure_settings(repo, user_id)
+    current_week = settings["current_week"]
+    current_year = settings["current_year"]
+    budget = settings["weekly_budget"]
+
+    # Current week
+    current = await repo.get_week_expenses(user_id, current_week, current_year)
+    current_total = sum(r["amount"] for r in current)
+
+    # Previous week (with year rollover)
+    if current_week > 1:
+        prev_week, prev_year = current_week - 1, current_year
+    else:
+        prev_week, prev_year = 52, current_year - 1
+    prev = await repo.get_week_expenses(user_id, prev_week, prev_year)
+    prev_total = sum(r["amount"] for r in prev)
+
+    # Year data
+    year_records = await repo.get_year_expenses(user_id, current_year)
+    weekly: dict[int, float] = {}
+    for r in year_records:
+        weekly[r["custom_week"]] = weekly.get(r["custom_week"], 0) + r["amount"]
+
+    year_total = sum(weekly.values())
+    weeks_count = len(weekly)
+    avg_week = year_total / weeks_count if weeks_count else 0
+
+    best_week = min(weekly.items(), key=lambda x: x[1]) if weekly else None
+    worst_week = max(weekly.items(), key=lambda x: x[1]) if weekly else None
+
+    lines = [f"📊 <b>Финансовый дашборд</b>\n"]
+    lines.append(f"Неделя {current_week}, {current_year} год\n")
+
+    if budget > 0:
+        pct = (current_total / budget) * 100
+        icon = "🔴" if current_total > budget else "🟢"
+        lines.append(f"Текущая неделя:  {_fmt(current_total)} / {_fmt(budget)} руб. ({pct:.0f}%) {icon}")
+    else:
+        lines.append(f"Текущая неделя:  {_fmt(current_total)} руб.")
+
+    if prev:
+        if budget > 0:
+            pct = (prev_total / budget) * 100
+            icon = "🔴" if prev_total > budget else "🟢"
+            lines.append(f"Прошлая неделя:  {_fmt(prev_total)} / {_fmt(budget)} руб. ({pct:.0f}%) {icon}")
+        else:
+            lines.append(f"Прошлая неделя:  {_fmt(prev_total)} руб.")
+
+    lines.append("")
+    lines.append(f"Этот год: {_fmt(year_total)} руб.")
+    if weeks_count:
+        lines.append(f"Недель с расходами: {weeks_count} → средняя: {_fmt(avg_week)} руб/нед")
+    if best_week:
+        lines.append(f"Лучшая неделя: №{best_week[0]} — {_fmt(best_week[1])} руб.")
+    if worst_week:
+        lines.append(f"Худшая неделя: №{worst_week[0]} — {_fmt(worst_week[1])} руб.")
+
+    await safe_reply(message, "\n".join(lines))
+
+    if year_records:
+        chart = create_year_chart(year_records, current_year, budget)
+        photo = BufferedInputFile(chart.read(), filename=f"year_{current_year}.png")
+        await message.answer_photo(photo)
+
+
 # ── /export (expenses CSV) ───────────────────────────────
 
 @router.message(Command("fexport"))
