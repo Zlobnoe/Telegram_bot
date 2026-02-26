@@ -19,6 +19,8 @@ class Repository:
         user_cols = {row["name"] for row in await cursor.fetchall()}
         if "is_approved" not in user_cols:
             await self._db.execute("ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT 0")
+        if "is_pending" not in user_cols:
+            await self._db.execute("ALTER TABLE users ADD COLUMN is_pending BOOLEAN DEFAULT 0")
         cursor = await self._db.execute("PRAGMA table_info(messages)")
         msg_cols = {row["name"] for row in await cursor.fetchall()}
         if "content_type" not in msg_cols:
@@ -108,6 +110,15 @@ class Repository:
 
     async def set_user_approved(self, user_id: int, approved: bool) -> None:
         await self._db.execute("UPDATE users SET is_approved = ? WHERE id = ?", (int(approved), user_id))
+        await self._db.commit()
+
+    async def is_user_pending(self, user_id: int) -> bool:
+        cursor = await self._db.execute("SELECT is_pending FROM users WHERE id = ?", (user_id,))
+        row = await cursor.fetchone()
+        return bool(row and row["is_pending"])
+
+    async def set_user_pending(self, user_id: int) -> None:
+        await self._db.execute("UPDATE users SET is_pending = 1 WHERE id = ?", (user_id,))
         await self._db.commit()
 
     async def get_all_users(self) -> list[dict]:

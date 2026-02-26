@@ -22,13 +22,33 @@ RETRY_KB = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 
+def _split_text(text: str, limit: int = 4096) -> list[str]:
+    """Split text at paragraph breaks, then line breaks, then hard-split as last resort."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    while len(text) > limit:
+        pos = text.rfind("\n\n", 0, limit)
+        if pos <= 0:
+            pos = text.rfind("\n", 0, limit)
+        if pos <= 0:
+            pos = limit
+        chunks.append(text[:pos].rstrip())
+        text = text[pos:].lstrip("\n")
+
+    if text.strip():
+        chunks.append(text.strip())
+    return chunks
+
+
 async def _send_response(typing: Message, message: Message, response: str) -> None:
     """Send response with formatting, splitting into chunks if needed."""
     if len(response) <= 4096:
         await safe_edit(typing, response, reply_markup=RETRY_KB)
     else:
         await typing.delete()
-        chunks = [response[i:i + 4096] for i in range(0, len(response), 4096)]
+        chunks = _split_text(response)
         for i, chunk in enumerate(chunks):
             kb = RETRY_KB if i == len(chunks) - 1 else None
             await safe_reply(message, chunk, reply_markup=kb)
