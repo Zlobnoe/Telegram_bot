@@ -81,6 +81,32 @@ class Repository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_user_calendars_user ON user_calendars(user_id);
             """)
+        # migration: add news tables if missing
+        cursor = await self._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='news_sources'"
+        )
+        if not await cursor.fetchone():
+            await self._db.executescript("""
+                CREATE TABLE news_sources (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL REFERENCES users(id),
+                    url        TEXT NOT NULL,
+                    name       TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, url)
+                );
+                CREATE TABLE news_items (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id  INTEGER NOT NULL REFERENCES users(id),
+                    title    TEXT NOT NULL,
+                    url      TEXT NOT NULL,
+                    source   TEXT NOT NULL DEFAULT '',
+                    liked    INTEGER DEFAULT NULL,
+                    shown_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_news_sources_user ON news_sources(user_id);
+                CREATE INDEX IF NOT EXISTS idx_news_items_user   ON news_items(user_id, shown_at);
+            """)
         await self._db.commit()
 
     async def close(self) -> None:
@@ -565,3 +591,69 @@ class Repository:
         )
         await self._db.commit()
         return cursor.rowcount > 0
+
+    # ── news sources ──────────────────────────────────────
+
+    async def add_news_source(self, user_id: int, url: str, name: str) -> int | None:
+        """Add RSS source. Returns new id or None if duplicate."""
+        try:
+            cursor = await self._db.execute(
+                "INSERT INTO news_sources (user_id, url, name) VALUES (?, ?, ?)",
+                (user_id, url, name),
+            )
+            await self._db.commit()
+            return cursor.lastrowid
+        except Exception:
+            return None
+
+    async def list_news_sources(self, user_id: int) -> list[dict]:
+        cursor = await self._db.execute(
+            "SELECT * FROM news_sources WHERE user_id = ? ORDER BY created_at",
+            (user_id,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def delete_news_source(self, source_id: int, user_id: int) -> bool:
+        cursor = await self._db.execute(
+            "DELETE FROM news_sources WHERE id = ? AND user_id = ?", (source_id, user_id)
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    # ── news items ────────────────────────────────────────
+
+    async def add_news_item(self, user_id: int, title: str, url: str, source: str) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO news_items (user_id, title, url, source) VALUES (?, ?, ?, ?)",
+            (user_id, title, url, source),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def set_news_feedback(self, item_id: int, user_id: int, liked: int) -> bool:
+        """Set liked=1 or liked=0 for a news item."""
+        cursor = await self._db.execute(
+            "UPDATE news_items SET liked = ? WHERE id = ? AND user_id = ?",
+            (liked, item_id, user_id),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def get_disliked_sources(self, user_id: int, limit: int = 50) -> list[str]:
+        """Return source names the user has disliked at least once."""
+        cursor = await self._db.execute(
+            """SELECT DISTINCT source FROM news_items
+               WHERE user_id = ? AND liked = 0 AND source != ''
+               ORDER BY shown_at DESC LIMIT ?""",
+            (user_id, limit),
+        )
+        return [r["source"] for r in await cursor.fetchall()]
+
+    async def get_shown_urls_last_24h(self, user_id: int) -> set[str]:
+        """Return URLs already shown to the user in the last 24 hours."""
+        cursor = await self._db.execute(
+            """SELECT url FROM news_items
+               WHERE user_id = ? AND shown_at >= datetime('now', '-24 hours')""",
+            (user_id,),
+        )
+        return {r["url"] for r in await cursor.fetchall()}

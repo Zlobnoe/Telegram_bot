@@ -101,4 +101,26 @@ CREATE TABLE IF NOT EXISTS user_calendars (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_calendars_user ON user_calendars(user_id);
+
+CREATE TABLE IF NOT EXISTS news_sources (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    url        TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, url)
+);
+
+CREATE TABLE IF NOT EXISTS news_items (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id  INTEGER NOT NULL REFERENCES users(id),
+    title    TEXT NOT NULL,
+    url      TEXT NOT NULL,
+    source   TEXT NOT NULL DEFAULT '',
+    liked    INTEGER DEFAULT NULL,
+    shown_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_sources_user ON news_sources(user_id);
+CREATE INDEX IF NOT EXISTS idx_news_items_user   ON news_items(user_id, shown_at);
 """

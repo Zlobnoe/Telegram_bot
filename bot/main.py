@@ -19,7 +19,7 @@ from bot.services.gcal import create_gcal_service, create_gcal_registry
 from bot.services.gcal_digest import GCalDigestService
 from bot.services.weather import WeatherService
 from bot.middleware.auth import AuthMiddleware
-from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses, weather
+from bot.handlers import commands, chat, voice, image, admin, vision, web, skills, reminder, summarize, memory, gcal, expenses, weather, news
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +90,7 @@ async def main() -> None:
     dp.include_router(image.router)      # /image
     dp.include_router(skills.router)     # /skills + skill triggers
     dp.include_router(weather.router)    # /weather
+    dp.include_router(news.router)       # /news, /news_add, /news_sources, /news_remove
     dp.include_router(summarize.router)  # URL auto-summarize
     dp.include_router(voice.router)      # voice messages
     dp.include_router(vision.router)     # photo messages
@@ -126,12 +127,16 @@ async def main() -> None:
         BotCommand(command="weather", description="Прогноз погоды"),
         BotCommand(command="exp_latest", description="Последние расходы"),
         BotCommand(command="delexp", description="Удалить расход"),
+        BotCommand(command="news", description="Свежие новости из RSS"),
+        BotCommand(command="news_add", description="Добавить RSS-источник"),
+        BotCommand(command="news_sources", description="Список RSS-источников"),
+        BotCommand(command="news_remove", description="Удалить RSS-источник"),
     ])
 
     # weather + daily digest (always runs, gcal is optional)
     weather_service = WeatherService(config.weather_lat, config.weather_lon, config.weather_city, config.timezone)
     dp["weather"] = weather_service
-    gcal_digest = GCalDigestService(bot, config, gcal_service, weather_service)
+    gcal_digest = GCalDigestService(bot, config, gcal_service, weather_service, repo=repo)
     gcal_digest.start()
 
     reminder_service.start()
