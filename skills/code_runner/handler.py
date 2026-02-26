@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import contextlib
+import threading
 
 SAFE_BUILTINS = {
     "abs": abs, "all": all, "any": any, "bin": bin, "bool": bool,
@@ -18,26 +19,15 @@ SAFE_BUILTINS = {
 }
 
 MAX_OUTPUT = 2000
-TIMEOUT_MSG = "Execution timed out (max 5s)"
+TIMEOUT_SECONDS = 5
+TIMEOUT_MSG = f"Execution timed out (max {TIMEOUT_SECONDS}s)"
 
 
-def execute(query: str, **kwargs) -> str:
-    """Run Python code in sandbox."""
-    code = query.strip()
-    for prefix in ("/run ", "/run\n"):
-        if code.startswith(prefix):
-            code = code[len(prefix):]
-            break
-
-    if not code:
-        return "No code provided. Usage: /run <python code>"
-
+def _run_in_sandbox(code: str) -> str:
     stdout = io.StringIO()
     sandbox = {"__builtins__": SAFE_BUILTINS}
-
     try:
         with contextlib.redirect_stdout(stdout):
-            # try as expression first
             try:
                 result = eval(code, sandbox)
                 if result is not None:
@@ -53,3 +43,28 @@ def execute(query: str, **kwargs) -> str:
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (truncated)"
     return output
+
+
+def execute(query: str, **kwargs) -> str:
+    """Run Python code in sandbox with a hard 5-second timeout."""
+    code = query.strip()
+    for prefix in ("/run ", "/run\n"):
+        if code.startswith(prefix):
+            code = code[len(prefix):]
+            break
+
+    if not code:
+        return "No code provided. Usage: /run <python code>"
+
+    result: list[str] = []
+
+    def _run() -> None:
+        result.append(_run_in_sandbox(code))
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=TIMEOUT_SECONDS)
+
+    if thread.is_alive():
+        return TIMEOUT_MSG
+    return result[0] if result else "Code executed successfully (no output)"

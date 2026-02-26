@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Union
 
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -21,8 +21,8 @@ class AuthMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[Message, dict[str, Any]], Awaitable[Any]],
-        event: Message,
+        handler: Callable[[Union[Message, CallbackQuery], dict[str, Any]], Awaitable[Any]],
+        event: Union[Message, CallbackQuery],
         data: dict[str, Any],
     ) -> Any:
         if not event.from_user:
@@ -52,8 +52,8 @@ class AuthMiddleware(BaseMiddleware):
                 f"🆕 New user wants access:\n\n"
                 f"Name: {user.first_name or ''} {user.last_name or ''}\n"
                 f"Username: {username}\n"
-                f"ID: `{user.id}`",
-                parse_mode="Markdown",
+                f"ID: <code>{user.id}</code>",
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="✅ Approve", callback_data=f"approve:{user.id}"),

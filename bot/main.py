@@ -61,6 +61,7 @@ async def main() -> None:
 
     # middleware
     dp.message.middleware(AuthMiddleware(config))
+    dp.callback_query.middleware(AuthMiddleware(config))
 
     # inject dependencies
     dp["config"] = config

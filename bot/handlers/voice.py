@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import os
 import tempfile
 import logging
 
@@ -10,6 +12,7 @@ from bot.config import Config
 from bot.database.repository import Repository
 from bot.services.llm import LLMService
 from bot.services.stt import STTService
+from bot.utils import md_to_html, safe_reply
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -22,24 +25,35 @@ async def handle_voice(message: Message, llm: LLMService, stt: STTService, repo:
 
     typing = await message.answer("🎤 Transcribing…")
 
+    fd, ogg_path = tempfile.mkstemp(suffix=".ogg")
+    os.close(fd)
     try:
         file = await message.bot.get_file(message.voice.file_id)
-        ogg_path = tempfile.mktemp(suffix=".ogg")
         await message.bot.download_file(file.file_path, ogg_path)
 
         text = await stt.transcribe(ogg_path)
         await repo.log_api_usage(user.id, "stt", config.whisper_model)
-        await typing.edit_text(f"🎤 _{text}_\n\n⏳ Thinking…", parse_mode="Markdown")
+
+        safe_text = html.escape(text)
+        await typing.edit_text(f"🎤 <i>{safe_text}</i>\n\n⏳ Thinking…", parse_mode="HTML")
 
         response = await llm.chat(user.id, text)
     except Exception:
         logger.exception("Voice handling error")
         await typing.edit_text("Failed to process voice message.")
         return
+    finally:
+        os.unlink(ogg_path)
 
-    if len(response) <= 4096:
-        await typing.edit_text(f"🎤 _{text}_\n\n{response}", parse_mode="Markdown")
+    safe_text = html.escape(text)
+    full = f"🎤 <i>{safe_text}</i>\n\n{md_to_html(response)}"
+
+    if len(full) <= 4096:
+        try:
+            await typing.edit_text(full, parse_mode="HTML")
+        except Exception:
+            await typing.edit_text(f"🎤 <i>{safe_text}</i>", parse_mode="HTML")
+            await safe_reply(message, response)
     else:
-        await typing.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
-        for i in range(0, len(response), 4096):
-            await message.answer(response[i : i + 4096])
+        await typing.edit_text(f"🎤 <i>{safe_text}</i>", parse_mode="HTML")
+        await safe_reply(message, response)
