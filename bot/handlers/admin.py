@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 from pathlib import Path
 
@@ -81,7 +82,7 @@ async def cb_model(callback: CallbackQuery, repo: Repository, config: Config) ->
     else:
         await repo.update_conversation_model(conv["id"], model_name)
 
-    await callback.message.edit_text(f"Model switched to `{model_name}`", parse_mode="Markdown")
+    await callback.message.edit_text(f"Model switched to <code>{html.escape(model_name)}</code>", parse_mode="HTML")
     await callback.answer(f"Model: {model_name}")
 
 
@@ -168,17 +169,17 @@ async def cmd_admin(message: Message, repo: Repository, config: Config) -> None:
         await message.answer("No users yet.")
         return
 
-    lines = ["**All users:**\n"]
+    lines = ["<b>All users:</b>\n"]
     for u in users:
         status = "✅" if u["is_approved"] else "⛔"
-        username = f"@{u['username']}" if u["username"] else "—"
+        username = f"@{html.escape(u['username'])}" if u["username"] else "—"
         lines.append(
-            f"{status} {u['first_name'] or '?'} ({username})\n"
-            f"   ID: `{u['id']}`\n"
+            f"{status} {html.escape(u['first_name'] or '?')} ({username})\n"
+            f"   ID: <code>{u['id']}</code>\n"
             f"   Requests: {u['total_requests']}, Tokens: {u['total_tokens']:,}"
         )
 
-    await message.answer("\n".join(lines), parse_mode="Markdown")
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # ── /stats <user_id> — detailed user stats ────────────────
@@ -194,13 +195,13 @@ async def cmd_stats(message: Message, repo: Repository, config: Config) -> None:
         return
 
     if len(parts) < 2:
-        await message.answer("Usage: /stats <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /stats &lt;user_id&gt;", parse_mode="HTML")
         return
 
     try:
         target_id = int(parts[1].strip())
     except ValueError:
-        await message.answer("Usage: /stats <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /stats &lt;user_id&gt;", parse_mode="HTML")
         return
     user = await repo.get_user(target_id)
     if not user:
@@ -214,12 +215,12 @@ async def cmd_stats(message: Message, repo: Repository, config: Config) -> None:
 
     api_stats = {row["type"]: row for row in api_usage}
 
-    username = f"@{user['username']}" if user["username"] else "—"
+    username = f"@{html.escape(user['username'])}" if user["username"] else "—"
     status = "✅ Approved" if user["is_approved"] else "⛔ Not approved"
 
     lines = [
-        f"**Stats for {user['first_name'] or '?'}** ({username})",
-        f"ID: `{target_id}`",
+        f"<b>Stats for {html.escape(user['first_name'] or '?')}</b> ({username})",
+        f"ID: <code>{target_id}</code>",
         f"Status: {status}",
         f"Joined: {user['created_at']}",
         "",
@@ -238,12 +239,12 @@ async def cmd_stats(message: Message, repo: Repository, config: Config) -> None:
     convs = await repo.get_user_token_usage_by_conversation(target_id)
     if convs:
         lines.append("")
-        lines.append("**Conversations:**")
+        lines.append("<b>Conversations:</b>")
         for c in convs:
             active = " ✅" if c["is_active"] else ""
-            lines.append(f"• #{c['id']} `{c['model']}` — {c['tokens']:,} tok, {c['message_count']} msgs{active}")
+            lines.append(f"• #{c['id']} <code>{html.escape(c['model'])}</code> — {c['tokens']:,} tok, {c['message_count']} msgs{active}")
 
-    await message.answer("\n".join(lines), parse_mode="Markdown")
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # ── /ban, /unban ──────────────────────────────────────────
@@ -254,17 +255,17 @@ async def cmd_ban(message: Message, repo: Repository, config: Config) -> None:
         return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("Usage: /ban <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /ban &lt;user_id&gt;", parse_mode="HTML")
         return
     try:
         target_id = int(parts[1].strip())
     except ValueError:
-        await message.answer("Usage: /ban <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /ban &lt;user_id&gt;", parse_mode="HTML")
         return
     await repo.set_user_approved(target_id, False)
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
-    await message.answer(f"⛔ {name} (`{target_id}`) banned.", parse_mode="Markdown")
+    await message.answer(f"⛔ <b>{html.escape(name)}</b> (<code>{target_id}</code>) забанен.", parse_mode="HTML")
 
 
 @router.message(Command("unban"))
@@ -273,17 +274,17 @@ async def cmd_unban(message: Message, repo: Repository, config: Config) -> None:
         return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("Usage: /unban <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /unban &lt;user_id&gt;", parse_mode="HTML")
         return
     try:
         target_id = int(parts[1].strip())
     except ValueError:
-        await message.answer("Usage: /unban <user\\_id>", parse_mode="Markdown")
+        await message.answer("Usage: /unban &lt;user_id&gt;", parse_mode="HTML")
         return
     await repo.set_user_approved(target_id, True)
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
-    await message.answer(f"✅ {name} (`{target_id}`) approved.", parse_mode="Markdown")
+    await message.answer(f"✅ <b>{html.escape(name)}</b> (<code>{target_id}</code>) одобрен.", parse_mode="HTML")
 
 
 # ── /broadcast <text> ─────────────────────────────────────

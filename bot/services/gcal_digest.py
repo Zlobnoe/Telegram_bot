@@ -213,13 +213,13 @@ class GCalDigestService:
         expense_block = results[3] if not isinstance(results[3], BaseException) else ""
 
         if isinstance(results[0], BaseException):
-            logger.exception("Calendar block failed: %s", results[0])
+            logger.error("Calendar block failed", exc_info=results[0])
         if isinstance(results[1], BaseException):
-            logger.exception("Weather block failed: %s", results[1])
+            logger.error("Weather block failed", exc_info=results[1])
         if isinstance(results[2], BaseException):
-            logger.exception("News block failed: %s", results[2])
+            logger.error("News block failed", exc_info=results[2])
         if isinstance(results[3], BaseException):
-            logger.exception("Expense block failed: %s", results[3])
+            logger.error("Expense block failed", exc_info=results[3])
 
         parts = ["☀️ <b>Доброе утро!</b>"]
         if calendar_block:

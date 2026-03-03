@@ -127,12 +127,16 @@ async def cmd_news(message: Message, repo: Repository) -> None:
         )
         title = html.escape(article["title"])
         source = html.escape(article["source"])
-        url = article["url"]
+        raw_url = article["url"]
+        if raw_url.startswith(("http://", "https://")):
+            safe_url = html.escape(raw_url, quote=True)
+        else:
+            safe_url = "#"
         pub = article["published"].strftime("%H:%M")
         text = (
             f'<b>{title}</b>\n'
             f'<i>{source}</i> · {pub}\n'
-            f'<a href="{url}">Читать →</a>'
+            f'<a href="{safe_url}">Читать →</a>'
         )
         await message.answer(text, parse_mode="HTML", reply_markup=_news_kb(item_id))
 
