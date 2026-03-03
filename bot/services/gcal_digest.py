@@ -125,8 +125,12 @@ class GCalDigestService:
         lines = ["📰 <b>Новости:</b>"]
         for a in articles:
             title = html.escape(a["title"])
-            url = a["url"]
-            lines.append(f'• <a href="{url}">{title}</a>')
+            raw_url = a["url"]
+            if raw_url.startswith(("http://", "https://")):
+                safe_url = html.escape(raw_url, quote=True)
+            else:
+                safe_url = "#"
+            lines.append(f'• <a href="{safe_url}">{title}</a>')
         return "\n".join(lines)
 
     async def _build_expense_block(self, user_id: int, today: datetime) -> str:
