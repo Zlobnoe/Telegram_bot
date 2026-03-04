@@ -53,8 +53,7 @@ async def main() -> None:
     # skills
     skills_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills")
     skill_service = SkillsService(skills_dir)
-    await skill_service.load_all()
-    llm.set_skills_prompt(skill_service.get_skills_prompt())
+    # skills disabled — not loading
 
     # bot + dispatcher
     bot = Bot(token=config.telegram_bot_token)

@@ -245,7 +245,7 @@ async def cmd_model(message: Message, repo: Repository, config: Config) -> None:
             await repo.create_conversation(message.from_user.id, model_name)
         else:
             await repo.update_conversation_model(conv["id"], model_name)
-        await message.answer(f"Модель переключена на `{model_name}`", parse_mode="Markdown")
+        await message.answer(f"Модель переключена на <code>{html.escape(model_name)}</code>", parse_mode="HTML")
         return
 
     # show buttons
@@ -258,8 +258,8 @@ async def cmd_model(message: Message, repo: Repository, config: Config) -> None:
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"model:{model}")])
 
     await message.answer(
-        f"Текущая модель: `{current}`\nВыберите модель:",
-        parse_mode="Markdown",
+        f"Текущая модель: <code>{html.escape(current)}</code>\nВыберите модель:",
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
