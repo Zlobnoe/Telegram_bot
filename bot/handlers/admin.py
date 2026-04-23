@@ -32,6 +32,7 @@ async def cb_approve(callback: CallbackQuery, repo: Repository, config: Config) 
 
     target_id = int(callback.data.split(":")[1])
     await repo.set_user_approved(target_id, True)
+    await repo.clear_user_pending(target_id)
 
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)
@@ -54,6 +55,7 @@ async def cb_deny(callback: CallbackQuery, repo: Repository, config: Config) -> 
         return
 
     target_id = int(callback.data.split(":")[1])
+    await repo.clear_user_pending(target_id)
 
     user = await repo.get_user(target_id)
     name = user["first_name"] if user else str(target_id)

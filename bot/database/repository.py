@@ -180,6 +180,10 @@ class Repository:
         await self._db.execute("UPDATE users SET is_pending = 1 WHERE id = ?", (user_id,))
         await self._db.commit()
 
+    async def clear_user_pending(self, user_id: int) -> None:
+        await self._db.execute("UPDATE users SET is_pending = 0 WHERE id = ?", (user_id,))
+        await self._db.commit()
+
     async def get_all_users(self) -> list[dict]:
         cursor = await self._db.execute(
             "SELECT id, username, first_name, is_approved, created_at FROM users ORDER BY created_at DESC"
