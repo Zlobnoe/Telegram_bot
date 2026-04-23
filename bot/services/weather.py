@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_RETRY_ATTEMPTS = 3
+_RETRY_DELAY = 2.0  # seconds between retries
 
 # WMO Weather interpretation codes → Russian description + emoji
 _WMO: dict[int, str] = {
@@ -65,46 +69,57 @@ class WeatherService:
             "wind_speed_unit": "ms",
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(BASE_URL, params=params)
-                resp.raise_for_status()
-                data = resp.json()
+        last_exc: Exception | None = None
+        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+            try:
+                async with httpx.AsyncClient(timeout=25) as client:
+                    resp = await client.get(BASE_URL, params=params)
+                    resp.raise_for_status()
+                    data = resp.json()
 
-            cur = data.get("current") or {}
-            daily = data.get("daily") or {}
+                cur = data.get("current") or {}
+                daily = data.get("daily") or {}
 
-            temp = cur.get("temperature_2m", "?")
-            feels = cur.get("apparent_temperature", "?")
-            code = cur.get("weather_code", 0)
-            wind = cur.get("wind_speed_10m", "?")
-            humidity = cur.get("relative_humidity_2m", "?")
+                temp = cur.get("temperature_2m", "?")
+                feels = cur.get("apparent_temperature", "?")
+                code = cur.get("weather_code", 0)
+                wind = cur.get("wind_speed_10m", "?")
+                humidity = cur.get("relative_humidity_2m", "?")
 
-            lines = [
-                f"🌡 <b>Погода в {self._city}:</b>",
-                f"{_desc(code)}, {temp}°C (ощущается {feels}°C)",
-                f"Ветер: {wind} м/с · Влажность: {humidity}%",
-                "",
-                "<b>Прогноз на 5 дней:</b>",
-            ]
+                lines = [
+                    f"🌡 <b>Погода в {self._city}:</b>",
+                    f"{_desc(code)}, {temp}°C (ощущается {feels}°C)",
+                    f"Ветер: {wind} м/с · Влажность: {humidity}%",
+                    "",
+                    "<b>Прогноз на 5 дней:</b>",
+                ]
 
-            dates = daily.get("time") or []
-            t_max = daily.get("temperature_2m_max") or []
-            t_min = daily.get("temperature_2m_min") or []
-            codes = daily.get("weather_code") or []
-            precip = daily.get("precipitation_sum") or []
+                dates = daily.get("time") or []
+                t_max = daily.get("temperature_2m_max") or []
+                t_min = daily.get("temperature_2m_min") or []
+                codes = daily.get("weather_code") or []
+                precip = daily.get("precipitation_sum") or []
 
-            for i in range(1, min(6, len(dates))):
-                date = datetime.strptime(dates[i], "%Y-%m-%d")
-                day = _DAYS_RU[date.weekday()]
-                desc = _desc(codes[i] if i < len(codes) else 0)
-                hi = t_max[i] if i < len(t_max) else "?"
-                lo = t_min[i] if i < len(t_min) else "?"
-                rain = precip[i] if i < len(precip) else 0
-                rain_str = f", осадки {rain:.1f} мм" if rain else ""
-                lines.append(f"{day} {date.strftime('%d.%m')}: {desc}, {lo}°..{hi}°{rain_str}")
+                for i in range(1, min(6, len(dates))):
+                    date = datetime.strptime(dates[i], "%Y-%m-%d")
+                    day = _DAYS_RU[date.weekday()]
+                    desc = _desc(codes[i] if i < len(codes) else 0)
+                    hi = t_max[i] if i < len(t_max) else "?"
+                    lo = t_min[i] if i < len(t_min) else "?"
+                    rain = precip[i] if i < len(precip) else 0
+                    rain_str = f", осадки {rain:.1f} мм" if rain else ""
+                    lines.append(f"{day} {date.strftime('%d.%m')}: {desc}, {lo}°..{hi}°{rain_str}")
 
-            return "\n".join(lines)
-        except Exception:
-            logger.exception("Failed to fetch weather from Open-Meteo")
-            return "🌡 Погода временно недоступна"
+                return "\n".join(lines)
+
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Weather fetch attempt %d/%d failed: %s: %s",
+                    attempt, _RETRY_ATTEMPTS, type(exc).__name__, exc,
+                )
+                if attempt < _RETRY_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_DELAY)
+
+        logger.error("All weather fetch attempts failed", exc_info=last_exc)
+        return "🌡 Погода временно недоступна"
